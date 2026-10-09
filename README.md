@@ -1,8 +1,8 @@
-# AMLL-into-SPW
+# AMLL into SPW
 
 将 Apple Music 风格的动态歌词融入 [Salt Player for Windows](https://github.com/Moriafly/SPW)（SPW）原生播放界面。
 
-AMLL-into-SPW 是一个计划中的 SPW 歌词显示增强插件，目标是通过 [SPW Workshop API](https://github.com/Moriafly/spw-workshop-api) 接管原生歌词渲染区域，呈现接近 [Apple Music-like Lyrics（AMLL）](https://github.com/amll-dev/applemusic-like-lyrics) 的歌词效果。
+AMLL into SPW 是一个计划中的 SPW 歌词显示增强插件，目标是通过 [SPW Workshop API](https://github.com/Moriafly/spw-workshop-api) 接管原生歌词渲染区域，呈现接近 [Apple Music-like Lyrics（AMLL）](https://github.com/amll-dev/applemusic-like-lyrics) 的歌词效果。
 
 项目不会要求用户打开独立窗口或进入额外页面。理想情况下，启用插件后，正常进入 SPW 播放界面即可看到新的歌词显示效果，原有的播放控制和界面交互仍然保留。
 
@@ -40,3 +40,6 @@ SPW Workshop API 的 `0.1.0-dev22` 版本已引入方法 Hook 和 Compose UI Hoo
 - [Apple Music-like Lyrics](https://github.com/amll-dev/applemusic-like-lyrics)：歌词效果和交互设计的主要参考。
 
 本项目是独立的社区项目，不代表上述项目的官方合作或支持。是否直接复用 AMLL 的实现尚未确定；如后续引入第三方代码，将遵守其相应开源许可证。
+
+> [!important]
+> 此项目仅为规划，不保证一定会完成，如果验证后发现无法实现将会删除此仓库；本 README 仅为计划，不保证所有内容按原计划完成，且会在完成计划后删除并重写一份新的 README。
