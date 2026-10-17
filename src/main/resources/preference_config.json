@@ -1,0 +1,15 @@
+{
+  "configs": [{
+    "title": "动态歌词",
+    "config": "amll.json",
+    "preferences": [
+      { "type": "switch", "key": "blur", "title": "模糊非活动歌词", "default_value": true },
+      { "type": "switch", "key": "scale", "title": "歌词缩放与逐字浮动", "default_value": true },
+      { "type": "switch", "key": "glow", "title": "长音发光", "default_value": true },
+      { "type": "switch", "key": "spring", "title": "弹簧滚动与错落动画", "default_value": true },
+      { "type": "switch", "key": "hide_passed", "title": "隐藏已唱过的歌词", "default_value": false },
+      { "type": "switch", "key": "romanization", "title": "显示音译与注音", "default_value": true },
+      { "type": "switch", "key": "reduced_motion", "title": "减少动态效果", "default_value": false, "summary": "关闭模糊、发光、缩放与弹簧动画，保留准确的逐字高亮。" }
+    ]
+  }]
+}

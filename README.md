@@ -2,44 +2,45 @@
 
 将 Apple Music 风格的动态歌词融入 [Salt Player for Windows](https://github.com/Moriafly/SPW)（SPW）原生播放界面。
 
-AMLL into SPW 是一个计划中的 SPW 歌词显示增强插件，目标是通过 [SPW Workshop API](https://github.com/Moriafly/spw-workshop-api) 接管原生歌词渲染区域，呈现接近 [Apple Music-like Lyrics（AMLL）](https://github.com/amll-dev/applemusic-like-lyrics) 的歌词效果。
+插件通过 [SPW Workshop API](https://github.com/Moriafly/spw-workshop-api) 接入原生播放页面，以 Compose / Skia 呈现 [Apple Music-like Lyrics（AMLL）](https://github.com/amll-dev/applemusic-like-lyrics) 风格的歌词效果。正常进入 SPW 播放界面即可使用，保留宿主播放控制，无需打开独立窗口。
 
-项目不会要求用户打开独立窗口或进入额外页面。理想情况下，启用插件后，正常进入 SPW 播放界面即可看到新的歌词显示效果，原有的播放控制和界面交互仍然保留。
+## 歌词显示
 
-## 计划功能
+- 逐字渐变高亮、浮动和长音发光；行级歌词使用整行高亮。
+- 按演唱者左右对唱，允许多个声部同时高亮；背景人声随所属歌词组进入时展开，保留完整尾音，未展开时不预留空行。
+- 弹簧滚动、错落位移、活动行缩放、非活动行模糊和视口边缘淡出。
+- 显示翻译、音译和 Ruby 注音，支持换行和长句折行。
+- 歌词区域透明衔接 SPW 整页背景，前奏与长间奏在独立占位中显示三点提示。
+- 鼠标悬停显示歌词行框，点击歌词跳转并平滑滚动；滚轮、方向键和 Page Up / Page Down 浏览，停止操作约三秒后恢复跟随；双击、Home 或 Esc 立即恢复跟随。
 
-- **原生界面集成**：直接替换播放页面中的歌词区域，与 SPW 现有界面保持协调。
-- **TTML 歌词**：支持逐字时间轴，保留歌词中的演唱者与背景人声等信息。
-- **左右对唱**：根据演唱者区分歌词的左右布局。
-- **多行同时高亮**：支持时间范围重叠的歌词同时演出，而非只能激活单行。
-- **背景人声效果**：为背景歌词使用独立的排版、缩放、透明度及动画。
-- **动态演出**：计划实现逐字渐变、平滑滚动和歌词切换动画，并支持翻译、音译等辅助内容。
+在插件设置中可切换模糊、缩放、发光、弹簧动画、隐藏已唱歌词和音译。隐藏已唱歌词时，整组声部唱完后渐隐；暂停或手动浏览时重新显示。减少动态效果模式保留准确高亮，关闭模糊、发光、缩放与弹簧动画。
 
-以上均为开发目标，**并非已实现的功能列表**。最终效果取决于 SPW 的实际 Hook 能力及后续技术验证结果。
+## 歌词来源
 
-## 开发状态
+按以下顺序读取：
 
-**目前处于规划与可行性验证阶段，尚无可供安装的版本。**
+1. 歌曲同名 `.ttml` 文件。
+2. 音频标签中的原始 TTML；普通歌词标签不会挡住其他 TTML 标签。
+3. 歌曲同名 `.lrc` 文件中的 TTML 内容。
+4. 其他插件通过原始 TTML 接口提供的歌词。
+5. SPW 已解析的 SPL / LRC 时间轴。
 
-SPW Workshop API 的 `0.1.0-dev22` 版本已引入方法 Hook 和 Compose UI Hook，但仍需在支持该 API 的 SPW 宿主版本中验证真实的歌词组件入口，以及播放进度同步等关键环节。
+原始 TTML 直接解析，保留原文，不经过 SPL。没有 TTML 时，使用宿主提供的歌词行、逐字单元和翻译生成内存中的兼容 TTML；不改写音频、歌词文件或其他插件缓存，也不为行级歌词编造逐字时间戳。
 
-接下来的工作计划：
+与 [SPW Lyrics](https://github.com/GaBoron/SPW-Lyrics) 的互通接收端已提供；SPW Lyrics 发送端待接入，跟踪 [Issue #12](https://github.com/GaBoron/SPW-Lyrics/issues/12)。方法签名、检测方式、偏移约定及调用示例见 [TTML 互通](docs/TTML互通.md)。
 
-- [ ] 验证能否在原生播放界面中完整替换歌词组件
-- [ ] 确认歌词数据获取方式与高精度播放进度同步方案
-- [ ] 接入 TTML 解析和多声部歌词时间轴
-- [ ] 实现对唱、重叠歌词与背景人声显示
-- [ ] 完善逐字动画、滚动效果及与 SPW 原生界面的融合
+## 使用要求
 
-在核心技术路线确定之前，项目不会提前承诺具体的发布时间。
+使用 **SPW 1.19.0 / Workshop API 0.1.0-dev23**。启用时需要授权“修改宿主类 / 界面”和“读取曲库”。
+
+从 [Releases](https://github.com/GaBoron/AMLL-into-SPW/releases/latest) 下载 `.spmod` 文件，使用 SPW 的插件安装功能安装，授权后启用。若同时使用歌词获取插件，可保持其原有流程；TTML 发送端适配前，本插件仍优先读取歌曲本地 TTML。
+
+停用插件后恢复宿主歌词界面，并关闭 TTML 接收接口。
 
 ## 相关项目
 
 - [Salt Player for Windows](https://github.com/Moriafly/SPW)：目标播放器。
-- [SPW Workshop API](https://github.com/Moriafly/spw-workshop-api)：计划使用的插件与 Hook 接口。
+- [SPW Workshop API](https://github.com/Moriafly/spw-workshop-api)：插件与原生 Hook 接口。
 - [Apple Music-like Lyrics](https://github.com/amll-dev/applemusic-like-lyrics)：歌词效果和交互设计的主要参考。
 
-本项目是独立的社区项目，不代表上述项目的官方合作或支持。是否直接复用 AMLL 的实现尚未确定；如后续引入第三方代码，将遵守其相应开源许可证。
-
-> [!important]
-> 此项目仅为规划，不保证一定会完成，如果验证后发现无法实现将会删除此仓库；本 README 仅为计划，不保证所有内容按原计划完成，且会在完成计划后删除并重写一份新的 README。
+本项目是独立的社区项目，不代表上述项目的官方合作或支持。使用 AGPL-3.0-only，第三方组件见 [许可证说明](THIRD_PARTY_NOTICES.md)。
