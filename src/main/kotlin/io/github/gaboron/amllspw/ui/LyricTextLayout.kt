@@ -2,8 +2,6 @@ package io.github.gaboron.amllspw.ui
 
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.text.*
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.sp
@@ -26,7 +24,8 @@ internal data class LineLayout(
 )
 internal data class GroupLayout(val rows: List<LineLayout>, val top: Float, val height: Float)
 
-internal fun layoutLyrics(document: LyricDocument, measurer: TextMeasurer, width: Int, fontSize: Float, showSecondary: Boolean, romanization: Boolean): List<GroupLayout> {
+internal fun layoutLyrics(document: LyricDocument, measurer: TextMeasurer, width: Int, fontSize: Float, showSecondary: Boolean, romanization: Boolean,
+    typography: LyricTypography = LyricTypography()): List<GroupLayout> {
     var top = 0f
     val hasDuet = document.lines.any { it.duet }
     val rowWidth = (width * if (hasDuet) .85f else 1f).roundToInt().coerceAtLeast(1)
@@ -34,8 +33,7 @@ internal fun layoutLyrics(document: LyricDocument, measurer: TextMeasurer, width
         val layouts = rows.sortedBy { it.background }.map { line ->
             val size = fontSize * if (line.background) .7f else 1f
             val hasRuby = romanization && line.words.any { it.ruby.isNotEmpty() }
-            val style = TextStyle(fontSize = size.sp, fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.SansSerif, lineHeight = (size * 1.24f).sp,
+            val style = typography.textStyle(size).copy(lineHeight = (size * 1.24f).sp,
                 textAlign = if (line.duet) TextAlign.Right else TextAlign.Left)
             val text = line.text
             val wrapped = wrapLyricLine(line, rowWidth, style, measurer)
@@ -73,8 +71,7 @@ internal fun layoutLyrics(document: LyricDocument, measurer: TextMeasurer, width
                     WordAnimation.Prepared(word, line.background, wordIndex == line.words.lastIndex, character))
             }
             val secondary = if (showSecondary) listOf(line.translation, line.romanization.takeIf { romanization }.orEmpty()).filter(String::isNotBlank).map {
-                measurer.measure(AnnotatedString(it), style.copy(fontSize = (size * .48f).sp, lineHeight = (size * .68f).sp,
-                    fontWeight = FontWeight.Medium), constraints = constraints)
+                measurer.measure(AnnotatedString(it), style.copy(fontSize = (size * .48f).sp, lineHeight = (size * .68f).sp), constraints = constraints)
             } else emptyList()
             LineLayout(line, main, regions, secondary, main.size.height + rubyHeight + secondary.sumOf { it.size.height + 5 } + 10f, rubyHeight,
                 (main.getLineBottom(0) - main.getLineTop(0)) / 1.24f, if (line.duet) (width - rowWidth).toFloat() else 0f)

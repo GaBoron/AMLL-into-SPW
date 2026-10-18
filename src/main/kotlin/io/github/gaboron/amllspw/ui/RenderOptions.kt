@@ -10,4 +10,5 @@ internal data class RenderOptions(
     val romanization: Boolean = true,
     val reducedMotion: Boolean = false,
     val coloredLyrics: Boolean = false,
+    val typography: LyricTypography = LyricTypography(),
 )

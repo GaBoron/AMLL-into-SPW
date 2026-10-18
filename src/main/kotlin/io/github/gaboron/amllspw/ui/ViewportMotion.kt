@@ -19,6 +19,7 @@ internal class ViewportMotion {
     var hits: List<Hit> = emptyList()
     var height = 0f
     var interludeY: Float? = null; private set
+    val footer = LyricFooterMotion()
     private var rows = emptyList<RowMotion>()
     private var fallback = LyricMotionFallback(longArrayOf())
     private var focus = -1
@@ -29,53 +30,72 @@ internal class ViewportMotion {
     private var lastNow = System.nanoTime()
     private var stiffness = 170f
     private var seekUntil = 0L
+    private val seekFollow = LyricSeekFollow()
     private val dotsY = SpringMotion(0f, 90f, 15f)
     private var dotsAnchor: Int? = null
 
     fun scroll(delta: Float, now: Long = lastNow) {
+        seekFollow.cancel()
         if (now >= manualUntil) manualOffset = currentOffset
         manualUntil = now + 3_000_000_000
         manualOffset -= delta
     }
-    fun follow() { manualUntil = 0 }
-    fun isManual(now: Long) = now < manualUntil
+    fun follow() { manualUntil = 0; seekFollow.cancel() }
+    fun followAfterSeek(positionMs: Long) {
+        manualOffset = currentOffset
+        manualUntil = 0
+        seekFollow.request(positionMs, lastNow)
+    }
+    fun isManual(now: Long) = now < manualUntil || seekFollow.isWaiting(now)
 
     fun update(groups: List<GroupLayout>, activeGroup: Int, timeMs: Long, dt: Float, now: Long, seek: Boolean,
         interludeBefore: Int? = null, slotHeight: Float = 0f, playing: Boolean? = null, hidePassed: Boolean = false, immediate: Boolean = false,
-        resetInterlude: Boolean = false, playbackRate: Float = 1f): List<RowMotion> {
+        resetInterlude: Boolean = false, playbackRate: Float = 1f,
+        footerHeight: Float = 0f, endOfLyrics: Boolean = false, footerBlurEnabled: Boolean = true): List<RowMotion> {
         lastNow = now
-        if (groups.isEmpty()) return emptyList()
+        seekFollow.update(timeMs, now)
+        val manual = isManual(now)
+        if (groups.isEmpty()) {
+            footer.update(0f, false, false, 0f, height, dt, true, 0f, 0f)
+            return emptyList()
+        }
         val first = rows.size != groups.size
         if (first) {
             rows = groups.map { RowMotion(SpringMotion(it.top), it.rows.map { VoiceMotion() }) }
             fallback = LyricMotionFallback(groups.map { group -> group.rows.minOf { it.line.startMs } }.toLongArray())
         }
         val active = groups.map { group -> timeMs >= group.rows.minOf { it.line.startMs } && timeMs < group.rows.maxOf { it.line.endMs } }
-        rows.forEachIndexed { index, row -> row.expanded = active[index] || isManual(now) || playing == false }
-        val geometry = LyricGeometry(groups, rows.map { it.expanded }, interludeBefore, slotHeight)
+        rows.forEachIndexed { index, row -> row.expanded = active[index] || manual || playing == false }
+        val geometry = LyricGeometry(groups, rows.map { it.expanded }, interludeBefore, slotHeight, footerHeight)
         val focusIndex = activeGroup.coerceIn(groups.indices)
+        // Like upstream, manual browsing freezes the previous footer focus. The bottom is a
+        // separate target, never a synthetic timed lyric or a focus inferred from the last row.
+        val footerFocused = footerHeight > 0 && (if (manual) footer.focused else endOfLyrics)
+        val motionFocus = if (footerFocused) groups.size else focusIndex
         if (seek) seekUntil = now + 650_000_000
-        if (focusIndex != focus) {
+        if (motionFocus != focus) {
             val interval = if (focus in groups.indices) abs(groups[focusIndex].rows.first().line.startMs - groups[focus].rows.first().line.startMs) else 800L
             stiffness = 170f + 50f * (1f - ((interval - 100f) / 700f).coerceIn(0f, 1f)).pow(.2f)
-            focus = focusIndex; focusStamp = now
+            focus = motionFocus; focusStamp = now
         }
-        val focal = geometry.interludeTop?.let { it + slotHeight / 2 } ?: (geometry.tops[focusIndex] + geometry.mainHeights[focusIndex] * .35f)
+        val focal = if (footerFocused) geometry.footerTop + footerHeight * .5f else
+            geometry.interludeTop?.let { it + slotHeight / 2 } ?: (geometry.tops[focusIndex] + geometry.mainHeights[focusIndex] * .35f)
         val aligned = focal - height * .35f
-        val offset = if (now < manualUntil) manualOffset.coerceIn(-height * .65f, maxOf(0f, geometry.tops.last())) else aligned
+        val maxOffset = if (footerHeight > 0) maxOf(0f, geometry.totalHeight - height * .35f) else maxOf(0f, geometry.tops.last())
+        val offset = if (manual) manualOffset.coerceIn(-height * .65f, maxOffset) else aligned
         currentOffset = offset
         val lag = if (first || now < seekUntil) 0f else abs(rows[focusIndex].y.value - (geometry.tops[focusIndex] - offset))
         val response = fallback.responseSeconds(focusIndex, playbackRate, lag, height,
-            !immediate && !isManual(now) && playing != false && interludeBefore == null)
+            !immediate && !manual && !footerFocused && now >= seekUntil && playing != false && interludeBefore == null, dt)
         val transitionDt = if (response == null) dt else dt * maxOf(1f, .3f / (response * 2.5f))
         rows.forEachIndexed { index, row ->
             val target = geometry.tops[index] - offset
-            val stagger = (abs(index - focusIndex) * 45L).coerceAtMost(270) * 1_000_000
+            val stagger = (abs(index - motionFocus) * 45L).coerceAtMost(270) * 1_000_000
             val seeking = now < seekUntil
             row.y.configure(if (seeking) 90f else stiffness, if (seeking) 15f else sqrt(stiffness) * 2.2f)
             if (first || immediate) row.y.snap(target)
             else if (response != null) row.y.follow(target, dt, response)
-            else if (seeking || now - focusStamp >= stagger || now < manualUntil) row.y.update(target, dt)
+            else if (seeking || now - focusStamp >= stagger || manual) row.y.update(target, dt)
             val scale = if (active[index]) 1f else .97f
             if (first || seek || immediate) row.scale.snap(scale)
             else if (response != null) row.scale.follow(scale, dt, response) else row.scale.update(scale, dt)
@@ -93,6 +113,12 @@ internal class ViewportMotion {
                 else { voice.scale.update(voiceScale, dt); voice.opacity.update(opacity, dt) }
             }
         }
+        val seeking = now < seekUntil
+        val footerStagger = (abs(groups.size - motionFocus) * 45L).coerceAtMost(270) * 1_000_000
+        footer.update(geometry.footerTop - offset, footerHeight > 0, footerFocused,
+            if (!footerBlurEnabled || footerFocused || manual) 0f else (1 + groups.size - focusIndex).coerceAtMost(5).toFloat(),
+            height, dt, immediate || seek, if (seeking) 90f else stiffness, if (seeking) 15f else sqrt(stiffness) * 2.2f,
+            first || seeking || manual || now - focusStamp >= footerStagger)
         interludeY = geometry.interludeTop?.let { top ->
             val target = top + slotHeight / 2 - offset
             if (first || seek || immediate || resetInterlude || dotsAnchor != interludeBefore) dotsY.snap(target) else dotsY.update(target, dt)

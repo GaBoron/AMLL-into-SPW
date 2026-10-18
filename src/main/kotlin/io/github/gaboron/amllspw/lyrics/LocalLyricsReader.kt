@@ -16,13 +16,13 @@ class LocalLyricsReader(
     private val sidecar: (Path, String) -> String? = ::readSidecar,
 ) {
     fun readTtml(audio: Path): LyricDocument? {
-        sidecar(audio, "ttml")?.let { ttml.read(it)?.let { document -> return document } }
+        sidecar(audio, "ttml")?.let { ttml.read(it)?.let { document -> return document.copy(source = LyricSource.TTML_FILE) } }
         // Inspect every lyric tag; an ordinary LRC/USLT tag must not hide a later TTML tag.
         runCatching { embedded(audio) }.getOrDefault(emptyList()).forEach {
-            ttml.read(it)?.let { document -> return document }
+            ttml.read(it)?.let { document -> return document.copy(source = LyricSource.EMBEDDED_TTML) }
         }
         // Some libraries store raw TTML in a same-name .lrc file.
-        sidecar(audio, "lrc")?.let { return ttml.read(it) }
+        sidecar(audio, "lrc")?.let { return ttml.read(it)?.copy(source = LyricSource.TTML_IN_LRC) }
         return null
     }
 

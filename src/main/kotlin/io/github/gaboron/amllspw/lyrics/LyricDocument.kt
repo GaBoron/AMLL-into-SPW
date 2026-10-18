@@ -29,6 +29,8 @@ data class LyricDocument(
     val lines: List<LyricLine>,
     val origin: Origin,
     val originalTtml: String? = null,
+    val metadata: List<LyricMetadata> = emptyList(),
+    val source: LyricSource = if (origin == Origin.HOST) LyricSource.HOST else LyricSource.UNKNOWN,
 ) {
     enum class Origin { TTML, HOST, LRC, EMPTY }
     val durationMs = lines.maxOfOrNull { it.endMs } ?: 0L

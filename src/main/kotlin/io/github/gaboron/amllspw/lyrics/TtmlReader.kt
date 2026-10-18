@@ -75,11 +75,12 @@ class TtmlReader {
             return LyricDocument(lines.mapIndexed { index, line ->
                 val following = lines.drop(index + 1).firstOrNull { it.startMs > line.startMs }?.startMs
                 if (line.endMs == MAX_TIME) line.copy(endMs = following ?: (line.startMs + 5_000)) else line
-            }, LyricDocument.Origin.TTML, original)
+            }, LyricDocument.Origin.TTML, original, metadata = TtmlMetadata.read(root))
         }
 
         fun visit(e: Element, parent: Range, depth: Int) {
             require(depth < 64 && result.size < 20_000) { "TTML exceeds rendering limits" }
+            if (e.local() == "head") return
             val r = range(e, parent)
             if (e.local() == "p") { paragraph(e, r); return }
             var next = r.start

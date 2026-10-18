@@ -3,6 +3,7 @@ package io.github.gaboron.amllspw.host
 
 import com.xuncorp.spw.workshop.api.WorkshopApi
 import com.xuncorp.spw.workshop.api.config.ConfigHelper
+import io.github.gaboron.amllspw.ui.LyricTypography
 import io.github.gaboron.amllspw.ui.RenderOptions
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,6 +21,7 @@ internal class AmllPreferences : AutoCloseable {
         spring = c.get("spring", true), hidePassed = c.get("hide_passed", false),
         romanization = c.get("romanization", true), reducedMotion = c.get("reduced_motion", false),
         coloredLyrics = c.get("colored_lyrics", false),
+        typography = LyricTypography.fromPreferences(c.get("font_weight", "700"), c.get("font_size", "auto")),
     )
     companion object { private const val FILE = "amll.json" }
 }

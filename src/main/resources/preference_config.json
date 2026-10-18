@@ -3,6 +3,18 @@
     "title": "动态歌词",
     "config": "amll.json",
     "preferences": [
+      {
+        "type": "list", "key": "font_weight", "title": "歌词字重",
+        "entries": ["特细 ExtraLight", "细体 Light", "常规 Regular", "中等 Medium", "粗体 Bold", "特粗 Heavy"],
+        "entry_values": ["200", "300", "400", "500", "700", "900"],
+        "default_value": "700", "summary": "使用内置 PingFang 字体，同时应用于歌词、翻译和注音；缺少的字符回退到系统字体。"
+      },
+      {
+        "type": "list", "key": "font_size", "title": "歌词字号",
+        "entries": ["自动（随窗口宽度）", "18", "20", "22", "24", "26", "28", "30", "32", "36", "40", "44", "48", "56", "64", "72"],
+        "entry_values": ["auto", "18", "20", "22", "24", "26", "28", "30", "32", "36", "40", "44", "48", "56", "64", "72"],
+        "default_value": "auto", "summary": "主歌词字号；翻译、音译和注音按比例缩放。默认自动适应窗口宽度。"
+      },
       { "type": "switch", "key": "blur", "title": "模糊非活动歌词", "default_value": true },
       { "type": "switch", "key": "scale", "title": "歌词缩放与逐字浮动", "default_value": true },
       { "type": "switch", "key": "glow", "title": "长音发光", "default_value": true },

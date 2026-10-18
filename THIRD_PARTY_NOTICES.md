@@ -12,6 +12,8 @@
 
 `CoverLyricColor.kt` 的主要色系选择和明亮歌词色参考 [SPW Island 的封面取色](https://github.com/GaBoron/SPW-island/blob/8ad331daaf1fb6217cdbe0337e34fa3e8db8dd61/src/main/kotlin/io/github/gaboron/spwisland/platform/CoverColorExtractor.kt)及[调色](https://github.com/GaBoron/SPW-island/blob/8ad331daaf1fb6217cdbe0337e34fa3e8db8dd61/src/main/kotlin/io/github/gaboron/spwisland/ui/IslandPalette.kt)（GaBoron，GPL-3.0-only），限制封面采样数量并适配原生歌词绘制。修改于 2026-10-18；许可证见 `licenses/GPL-3.0.txt`。
 
+`LyricFooterMotion.kt`、`LyricFooterLayout.kt`、`LyricFooterPainter.kt` 及 `ViewportMotion.kt` 的末尾底栏行为依据 AMLL core 的 [BottomLine](https://github.com/amll-dev/applemusic-like-lyrics/blob/ca0f41d67882d936c0365ffd99c16841ea2fa39d/packages/core/src/lyric-player/dom/bottom-line.ts)、[焦点状态机](https://github.com/amll-dev/applemusic-like-lyrics/blob/ca0f41d67882d936c0365ffd99c16841ea2fa39d/packages/core/src/lyric-player/base/focus.ts)及[样式](https://github.com/amll-dev/applemusic-like-lyrics/blob/ca0f41d67882d936c0365ffd99c16841ea2fa39d/packages/core/src/styles/lyric-player.module.css)（AGPL-3.0-only）适配，包括独立占位、曲末聚焦、弹簧入场、模糊及透明度过渡。原实现由 SteveXMH 及 AMLL 贡献者维护；本项目于 2026-10-18 改为原生文字布局与绘制，并接入元数据和来源内容。
+
 插件包中的依赖：
 
 | 组件 | 许可证 | 用途 |
@@ -22,3 +24,5 @@
 许可证随包置于 `licenses/`，Jaudiotagger 对应源码及本项目源码随包置于 `source/`。Jaudiotagger 为未修改的独立 JAR，可替换兼容版本。
 
 SPW Workshop API、Kotlin、Compose、Skia 和 Skiko 由宿主提供，不随插件重复打包。Gradle Wrapper 使用 Apache-2.0 许可证。
+
+内置的六款 PingFang 字体为独立字体资源，保留原始文件及其版权元数据，不适用本项目的 AGPL-3.0-only 许可证。字体文件内嵌的许可说明为“Apple Inc internal use only. Do not distribute.”。

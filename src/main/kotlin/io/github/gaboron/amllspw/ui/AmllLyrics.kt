@@ -15,7 +15,6 @@ import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.*
-import androidx.compose.ui.unit.sp
 import io.github.gaboron.amllspw.timeline.LyricTimeline
 import io.github.gaboron.amllspw.timeline.FramePlaybackClock
 import io.github.gaboron.amllspw.timeline.InterludeAnimation
@@ -25,10 +24,13 @@ import kotlin.math.*
 @Composable
 internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: RenderOptions, modifier: Modifier,
     onTime: () -> Long, onSeek: (Long) -> Unit, showSecondary: Boolean,
-    onPlaying: () -> Boolean? = { null }, onSeekGeneration: () -> Long = { 0 }) {
+    onPlaying: () -> Boolean? = { null }, onSeekGeneration: () -> Long = { 0 },
+    bottomContent: LyricFooterContent? = null) {
     val measurer = rememberTextMeasurer(cacheSize = 1_024)
     val painter = remember(measurer) { LyricLinePainter(measurer) }
-    DisposableEffect(painter) { onDispose { painter.close() } }
+    val footerPainter = remember { LyricFooterPainter() }
+    DisposableEffect(painter, footerPainter) { onDispose { painter.close(); footerPainter.close() } }
+    val footerContent = bottomContent ?: remember(presentation.document) { LyricFooterContent.from(presentation.document) }
     val viewport = remember(presentation.trackKey, presentation.document) { ViewportMotion() }
     val pointer = remember(viewport) { LyricPointerState() }
     val timeline = remember(presentation.document) { LyricTimeline(presentation.document) }
@@ -42,7 +44,7 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
     val density = LocalDensity.current
     var frameTime by remember { mutableLongStateOf(0L) }
     LaunchedEffect(Unit) { while (true) withFrameNanos { frameTime = it } }
-    val cache = remember(presentation.document, density, showSecondary, options.romanization) { LayoutCache() }
+    val cache = remember(presentation.document, density, showSecondary, options.romanization, options.typography, footerContent) { LayoutCache() }
     val lyricColor = if (options.coloredLyrics) Color(presentation.lyricColor) else Color.White
     val scroll = rememberScrollableState { delta -> viewport.scroll(delta); delta }
     val hovering = pointer.position?.let { point -> viewport.hits.any { it.bounds.contains(point) } } == true
@@ -52,7 +54,9 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
         .pointerInput(viewport) {
             detectTapGestures(onTap = { point ->
                 viewport.hits.firstOrNull { it.bounds.contains(point) }?.let {
-                    seekTo((it.positionMs + offsetMs).coerceAtLeast(0)); viewport.follow()
+                    val target = (it.positionMs + offsetMs).coerceAtLeast(0)
+                    seekTo(target)
+                    viewport.followAfterSeek((target - offsetMs).coerceAtLeast(0))
                 }
             }, onDoubleTap = { viewport.follow() })
         }
@@ -67,6 +71,7 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
             }
         }.focusable().semantics {
             contentDescription = "动态歌词，点击歌词跳转，双击回到当前歌词"
+            if (footerContent.text.isNotBlank()) text = AnnotatedString(footerContent.text)
             customActions = listOf(CustomAccessibilityAction("回到当前歌词") { viewport.follow(); true })
         }) {
         val nanos = frameTime
@@ -77,12 +82,14 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
         val position = (hostPosition - presentation.offsetMs).coerceAtLeast(0)
         val seek = clock.discontinuity || (cache.lastPosition >= 0 && abs(position - cache.lastPosition) > 1_500)
         cache.lastPosition = position
-        val fontSize = (size.width / density.density / 13.5f).coerceIn(24f, 42f)
+        val fontSize = options.typography.fontSize(size.width / density.density)
         val margin = size.width * .075f
         val width = (size.width - margin * 2).roundToInt().coerceAtLeast(1)
-        if (cache.width != width) {
+        if (cache.width != width || cache.fontSize != fontSize) {
             cache.width = width
-            cache.groups = layoutLyrics(presentation.document, measurer, width, fontSize, showSecondary, options.romanization)
+            cache.fontSize = fontSize
+            cache.groups = layoutLyrics(presentation.document, measurer, width, fontSize, showSecondary, options.romanization, options.typography)
+            cache.footer = layoutLyricFooter(footerContent, measurer, width, fontSize, options.typography)
         }
         viewport.height = size.height
         val frame = timeline.frame(position)
@@ -91,13 +98,16 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
         val motions = viewport.update(cache.groups, frame.focus, position, dt, nanos, seek,
             interval?.beforeGroup, interludeSlotHeight(fontSize * density.density, size.height), playing,
             options.hidePassed && playing != false && !viewport.isManual(nanos) && !scroll.isScrollInProgress, !options.spring || options.reducedMotion,
-            interlude.restarted, clock.playbackRate)
+            interlude.restarted, clock.playbackRate,
+            footerHeight = cache.footer?.height ?: 0f,
+            endOfLyrics = presentation.document.lines.isNotEmpty() && position >= presentation.document.durationMs,
+            footerBlurEnabled = options.blur && !options.reducedMotion && pointer.position == null)
         val manual = viewport.isManual(nanos) || scroll.isScrollInProgress
         cache.backgroundTime += dt * if (position != cache.backgroundPosition) 1f else 0f
         cache.backgroundPosition = position
         if (options.background) drawFluidBackground(presentation.palette, if (options.reducedMotion) 0f else cache.backgroundTime)
         if (cache.groups.isEmpty() && !presentation.loading) {
-            val empty = measurer.measure(AnnotatedString("暂无可用歌词"), TextStyle(fontSize = 18.sp))
+            val empty = measurer.measure(AnnotatedString("暂无可用歌词"), options.typography.textStyle(18f))
             drawText(empty, color = Color.White.copy(alpha = .6f), topLeft = Offset((size.width - empty.size.width) / 2, size.height * .35f))
         }
         val hits = mutableListOf<ViewportMotion.Hit>()
@@ -134,6 +144,7 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
             }
         }
         viewport.hits = hits
+        with(footerPainter) { paintFooter(cache.footer, viewport.footer, margin, lyricColor) }
         viewport.interludeY?.let { y ->
             val duet = interval?.beforeGroup?.let { cache.groups.getOrNull(it)?.rows?.firstOrNull()?.line?.duet } == true
             cache.dotsOrigin = Offset(if (duet) size.width - margin - interludeWidth(fontSize * density.density) else margin, y)
@@ -144,7 +155,9 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
 
 private class LayoutCache {
     var width = -1
+    var fontSize = -1f
     var groups = emptyList<GroupLayout>()
+    var footer: LyricFooterLayout? = null
     var lastFrame = 0L
     var lastPosition = -1L
     var backgroundTime = 0f

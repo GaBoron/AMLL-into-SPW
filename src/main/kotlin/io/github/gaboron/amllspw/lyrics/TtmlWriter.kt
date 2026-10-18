@@ -7,9 +7,13 @@ object TtmlWriter {
         return buildString {
             append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
             append("<tt xmlns=\"http://www.w3.org/ns/ttml\" xmlns:ttm=\"http://www.w3.org/ns/ttml#metadata\" ")
+            if (document.metadata.isNotEmpty()) append("xmlns:amll=\"http://www.example.com/ns/amll\" ")
             append("xmlns:itunes=\"http://music.apple.com/lyric-ttml-internal\" xmlns:tts=\"http://www.w3.org/ns/ttml#styling\" ")
             append("itunes:timing=\"").append(if (document.lines.any { it.hasWordTiming }) "Word" else "Line").append("\">")
             append("<head><metadata>")
+            document.metadata.forEach { entry -> entry.values.forEach { value ->
+                append("<amll:meta key=\"").append(escape(entry.key)).append("\" value=\"").append(escape(value)).append("\"/>")
+            } }
             document.lines.map { it.agent }.filter(String::isNotBlank).distinct().forEach { agent ->
                 append("<ttm:agent type=\"person\" xml:id=\"").append(escape(agent)).append("\"/>")
             }

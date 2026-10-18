@@ -1,6 +1,7 @@
 package io.github.gaboron.amllspw.interop
 
 import io.github.gaboron.amllspw.lyrics.LyricDocument
+import io.github.gaboron.amllspw.lyrics.LyricSource
 import io.github.gaboron.amllspw.lyrics.TtmlReader
 
 /** One current-song slot, never a cross-song cache. Parsing happens outside its lock. */
@@ -18,7 +19,7 @@ internal class TtmlInbox(private val parse: (String) -> LyricDocument? = TtmlRea
         if (current()?.matches(track) != true) return false
         synchronized(this) {
             if (generation != observed) return false
-            entry = Entry(track, document, offsetMs)
+            entry = Entry(track, document.copy(source = LyricSource.PLUGIN_TTML), offsetMs)
         }
         return true
     }

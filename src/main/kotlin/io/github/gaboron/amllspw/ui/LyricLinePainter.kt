@@ -4,7 +4,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.*
 import androidx.compose.ui.text.*
-import androidx.compose.ui.unit.sp
 import org.jetbrains.skia.FilterTileMode
 import org.jetbrains.skia.ImageFilter
 import org.jetbrains.skia.Paint
@@ -31,7 +30,8 @@ internal class LyricLinePainter(private val measurer: TextMeasurer) : AutoClosea
                 }
                 for (region in layout.words.filter { it.word.ruby.isNotEmpty() && options.romanization }) {
                     val rect = region.rects.firstOrNull() ?: continue
-                    val ruby = measurer.measure(AnnotatedString(region.word.ruby), TextStyle(fontSize = (layout.main.layoutInput.style.fontSize.value * .38f).sp))
+                    val style = layout.main.layoutInput.style
+                    val ruby = measurer.measure(AnnotatedString(region.word.ruby), options.typography.textStyle(style.fontSize.value * .38f))
                     drawText(ruby, color = color.copy(alpha = if (active) .9f else .4f),
                         topLeft = Offset(rect.center.x - ruby.size.width / 2, rect.top - ruby.size.height))
                 }
