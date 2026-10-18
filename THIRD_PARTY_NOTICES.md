@@ -8,6 +8,10 @@
 
 三点等待动画的时序由 AMLL core 的 [InterludeDotsBase](https://github.com/amll-dev/applemusic-like-lyrics/blob/ca0f41d67882d936c0365ffd99c16841ea2fa39d/packages/core/src/lyric-player/base/interlude-dots.ts)（AGPL-3.0-only）移植至 `InterludeSequence.kt` 和 `InterludeAnimation.kt`，包括交错入场、整体呼吸、分段点亮与退场曲线；`InterludePainter.kt` 负责原生绘制。原实现由 SteveXMH 及 AMLL 贡献者维护，此适配修改于 2026-10-18。
 
+`BalancedLineBreaks.kt` 和 `LyricLineWrapping.kt` 根据 AMLL core 的 [均衡断点算法](https://github.com/amll-dev/applemusic-like-lyrics/blob/ca0f41d67882d936c0365ffd99c16841ea2fa39d/packages/core/src/utils/lyric-line-break.ts)、[行平衡器](https://github.com/amll-dev/applemusic-like-lyrics/blob/ca0f41d67882d936c0365ffd99c16841ea2fa39d/packages/core/src/utils/line-balancer.ts)及[词分组](https://github.com/amll-dev/applemusic-like-lyrics/blob/ca0f41d67882d936c0365ffd99c16841ea2fa39d/packages/core/src/utils/lyric-split-words.ts)（AGPL-3.0-only）移植，保留行宽代价及标点、空格和 CJK 词界的权重，改用原生文字测量和文字索引映射；对唱留白沿用同一版本样式中的 15% 比例。原实现由 SteveXMH 及 AMLL 贡献者维护，此适配修改于 2026-10-18。
+
+`CoverLyricColor.kt` 的主要色系选择和明亮歌词色参考 [SPW Island 的封面取色](https://github.com/GaBoron/SPW-island/blob/8ad331daaf1fb6217cdbe0337e34fa3e8db8dd61/src/main/kotlin/io/github/gaboron/spwisland/platform/CoverColorExtractor.kt)及[调色](https://github.com/GaBoron/SPW-island/blob/8ad331daaf1fb6217cdbe0337e34fa3e8db8dd61/src/main/kotlin/io/github/gaboron/spwisland/ui/IslandPalette.kt)（GaBoron，GPL-3.0-only），限制封面采样数量并适配原生歌词绘制。修改于 2026-10-18；许可证见 `licenses/GPL-3.0.txt`。
+
 插件包中的依赖：
 
 | 组件 | 许可证 | 用途 |

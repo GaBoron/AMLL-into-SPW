@@ -19,6 +19,7 @@ internal class AmllPreferences : AutoCloseable {
         blur = c.get("blur", true), scale = c.get("scale", true), glow = c.get("glow", true),
         spring = c.get("spring", true), hidePassed = c.get("hide_passed", false),
         romanization = c.get("romanization", true), reducedMotion = c.get("reduced_motion", false),
+        coloredLyrics = c.get("colored_lyrics", false),
     )
     companion object { private const val FILE = "amll.json" }
 }

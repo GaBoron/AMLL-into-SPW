@@ -13,7 +13,7 @@ internal fun interludeWidth(fontPx: Float) = fontPx * 1.26f
 
 /** Coordinates come from the reserved layout slot, including scroll and spring movement. */
 internal fun DrawScope.paintInterlude(snapshot: InterludeSnapshot, y: Float, x: Float,
-    fontPx: Float, occupied: List<Rect>, reducedMotion: Boolean) {
+    fontPx: Float, occupied: List<Rect>, reducedMotion: Boolean, color: Color = Color.White) {
     if (!snapshot.active || snapshot.opacity <= 0f) return
     val radius = fontPx * .15f
     val spacing = radius * 3.2f
@@ -24,7 +24,7 @@ internal fun DrawScope.paintInterlude(snapshot: InterludeSnapshot, y: Float, x: 
     // During a staggered transition an outgoing line can still cross the new slot.
     if (occupied.any { it.overlaps(bounds) }) return
     withTransform({ scale(scale, scale, pivot) }) {
-        for (i in 0..2) drawCircle(Color.White.copy(alpha = (snapshot.dots[i] * snapshot.opacity).coerceIn(0f, 1f)),
+        for (i in 0..2) drawCircle(color.copy(alpha = (snapshot.dots[i] * snapshot.opacity).coerceIn(0f, 1f)),
             radius, Offset(x + radius + i * spacing, y))
     }
 }

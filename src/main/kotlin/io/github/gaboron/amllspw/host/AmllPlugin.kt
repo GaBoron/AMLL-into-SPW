@@ -21,7 +21,7 @@ class AmllPlugin(context: PluginContext) : SpwPlugin(context) {
             handle = WorkshopApi.hookRegistrar.replaceComposable(target.owner, target.method, target.caller, target.parameters) { call ->
                 val arguments = NativeLyricsArguments.read(call.arguments)
                 // Argument 7 is "activated", not "showSubText".
-                NativeLyricsContent(created, arguments.modifier, arguments.onTime, true)
+                NativeLyricsContent(created, arguments.modifier, true)
             }
             active = created
             current = created
@@ -54,11 +54,11 @@ class AmllPlaybackExtension : PlaybackExtensionPoint {
         return null
     }
     override fun onLyricsLinesUpdated(lyricsLines: List<PlaybackExtensionPoint.LyricsLine>) { AmllPlugin.current?.lyricsChanged() }
-    override fun onPositionUpdated(position: Long) { AmllPlugin.current?.clock?.sync(position) }
-    override fun onIsPlayingChanged(isPlaying: Boolean) { AmllPlugin.current?.clock?.playing(isPlaying) }
-    override fun onSeekTo(position: Long) { AmllPlugin.current?.clock?.sync(position, seek = true) }
+    override fun onPositionUpdated(position: Long) { AmllPlugin.current?.positionChanged(position) }
+    override fun onIsPlayingChanged(isPlaying: Boolean) { AmllPlugin.current?.playingChanged(isPlaying) }
+    override fun onSeekTo(position: Long) { AmllPlugin.current?.positionChanged(position, seek = true) }
     override fun onStateChanged(state: PlaybackExtensionPoint.State) {
         if (state in setOf(PlaybackExtensionPoint.State.Idle, PlaybackExtensionPoint.State.Ended, PlaybackExtensionPoint.State.Buffering))
-            AmllPlugin.current?.clock?.playing(false)
+            AmllPlugin.current?.playingChanged(false)
     }
 }

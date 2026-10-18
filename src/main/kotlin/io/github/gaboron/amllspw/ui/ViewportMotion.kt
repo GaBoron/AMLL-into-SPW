@@ -20,6 +20,7 @@ internal class ViewportMotion {
     var height = 0f
     var interludeY: Float? = null; private set
     private var rows = emptyList<RowMotion>()
+    private var fallback = LyricMotionFallback(longArrayOf())
     private var focus = -1
     private var focusStamp = 0L
     private var manualUntil = 0L
@@ -41,11 +42,14 @@ internal class ViewportMotion {
 
     fun update(groups: List<GroupLayout>, activeGroup: Int, timeMs: Long, dt: Float, now: Long, seek: Boolean,
         interludeBefore: Int? = null, slotHeight: Float = 0f, playing: Boolean? = null, hidePassed: Boolean = false, immediate: Boolean = false,
-        resetInterlude: Boolean = false): List<RowMotion> {
+        resetInterlude: Boolean = false, playbackRate: Float = 1f): List<RowMotion> {
         lastNow = now
         if (groups.isEmpty()) return emptyList()
         val first = rows.size != groups.size
-        if (first) rows = groups.map { RowMotion(SpringMotion(it.top), it.rows.map { VoiceMotion() }) }
+        if (first) {
+            rows = groups.map { RowMotion(SpringMotion(it.top), it.rows.map { VoiceMotion() }) }
+            fallback = LyricMotionFallback(groups.map { group -> group.rows.minOf { it.line.startMs } }.toLongArray())
+        }
         val active = groups.map { group -> timeMs >= group.rows.minOf { it.line.startMs } && timeMs < group.rows.maxOf { it.line.endMs } }
         rows.forEachIndexed { index, row -> row.expanded = active[index] || isManual(now) || playing == false }
         val geometry = LyricGeometry(groups, rows.map { it.expanded }, interludeBefore, slotHeight)
@@ -60,30 +64,33 @@ internal class ViewportMotion {
         val aligned = focal - height * .35f
         val offset = if (now < manualUntil) manualOffset.coerceIn(-height * .65f, maxOf(0f, geometry.tops.last())) else aligned
         currentOffset = offset
+        val lag = if (first || now < seekUntil) 0f else abs(rows[focusIndex].y.value - (geometry.tops[focusIndex] - offset))
+        val direct = immediate || (!isManual(now) && playing != false && interludeBefore == null &&
+            fallback.shouldSnap(focusIndex, playbackRate, lag, height))
         rows.forEachIndexed { index, row ->
             val target = geometry.tops[index] - offset
             val stagger = (abs(index - focusIndex) * 45L).coerceAtMost(270) * 1_000_000
             val seeking = now < seekUntil
             row.y.configure(if (seeking) 90f else stiffness, if (seeking) 15f else sqrt(stiffness) * 2.2f)
-            if (first || immediate) row.y.snap(target)
+            if (first || direct) row.y.snap(target)
             else if (seeking || now - focusStamp >= stagger || now < manualUntil) row.y.update(target, dt)
             val scale = if (active[index]) 1f else .97f
-            if (first || seek || immediate) row.scale.snap(scale) else row.scale.update(scale, dt)
+            if (first || seek || direct) row.scale.snap(scale) else row.scale.update(scale, dt)
             val slide = if (row.expanded) 0f else -80f
-            if (first || seek || immediate) row.backgroundSlide.snap(slide) else row.backgroundSlide.update(slide, dt)
+            if (first || seek || direct) row.backgroundSlide.snap(slide) else row.backgroundSlide.update(slide, dt)
             row.voices.forEachIndexed { voiceIndex, voice ->
                 val line = groups[index].rows[voiceIndex].line
                 val voiceScale = if (line.background && !active[index]) .75f else 1f
                 val opacity = if (!line.background) 1f else if (row.expanded) .4f else 0f
-                voice.highlight.update(active[index], dt, first || seek || immediate)
-                voice.visibility.update(!hidePassed || timeMs < groups[index].rows.maxOf { it.line.endMs }, dt, first || seek || immediate)
-                if (first || seek || immediate) { voice.scale.snap(voiceScale); voice.opacity.snap(opacity) }
+                voice.highlight.update(active[index], dt, first || seek || direct)
+                voice.visibility.update(!hidePassed || timeMs < groups[index].rows.maxOf { it.line.endMs }, dt, first || seek || direct)
+                if (first || seek || direct) { voice.scale.snap(voiceScale); voice.opacity.snap(opacity) }
                 else { voice.scale.update(voiceScale, dt); voice.opacity.update(opacity, dt) }
             }
         }
         interludeY = geometry.interludeTop?.let { top ->
             val target = top + slotHeight / 2 - offset
-            if (first || seek || immediate || resetInterlude || dotsAnchor != interludeBefore) dotsY.snap(target) else dotsY.update(target, dt)
+            if (first || seek || direct || resetInterlude || dotsAnchor != interludeBefore) dotsY.snap(target) else dotsY.update(target, dt)
             dotsY.value
         }
         dotsAnchor = interludeBefore

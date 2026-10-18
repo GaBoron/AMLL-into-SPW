@@ -51,7 +51,19 @@ internal class AmllRuntime : AutoCloseable {
         // Resolve current identity before associating an unkeyed host lyric callback with a song.
         val media = WorkshopApi.playback.getCurrentMediaItem() ?: return@enqueue clear()
         select(media)
-        refreshDocument(media)
+        refreshDocument(media, hostUpdated = true)
+    }
+
+    fun positionChanged(position: Long, seek: Boolean = false) {
+        currentIdentity()?.let { clock.sync("${it.id}|${it.path}", position, seek) }
+    }
+    fun playingChanged(playing: Boolean) {
+        currentIdentity()?.let { clock.playing("${it.id}|${it.path}", playing) }
+    }
+    fun seekTo(trackKey: String, position: Long) {
+        val current = currentIdentity() ?: return
+        if (trackKey.isEmpty() || trackKey != "${current.id}|${current.path}" || presentation.value.trackKey != trackKey) return
+        WorkshopApi.playback.seekTo(position.coerceAtLeast(0))
     }
 
     fun receiveTtml(track: TrackIdentity, xml: String, offsetMs: Long): Boolean {
@@ -74,26 +86,29 @@ internal class AmllRuntime : AutoCloseable {
         initialized = true
         key = next
         val previous = mutablePresentation.value
-        mutablePresentation.value = LyricsPresentation(trackKey = next, palette = previous.palette)
+        mutablePresentation.value = LyricsPresentation(trackKey = next, palette = previous.palette, loading = true)
         localDocument = runCatching { local.readTtml(Path.of(media.path)) }.getOrNull()
         if (closed) return
         refreshDocument(media)
         CoverPaletteReader.read(media.id)?.let { colors ->
-            if (!closed) mutablePresentation.value = mutablePresentation.value.copy(palette = colors)
+            if (!closed && currentIdentity()?.matches(TrackIdentity(media.id, media.path)) == true)
+                mutablePresentation.value = mutablePresentation.value.copy(palette = colors.palette, lyricColor = colors.lyric)
         }
     }
 
-    private fun refreshDocument(media: PlaybackExtensionPoint.MediaItem) {
+    private fun refreshDocument(media: PlaybackExtensionPoint.MediaItem, hostUpdated: Boolean = false) {
         if (currentIdentity()?.matches(TrackIdentity(media.id, media.path)) != true) {
             clear(); return
         }
         val received = inbox.current(TrackIdentity(media.id, media.path))
         val document = localDocument ?: received?.document ?: HostLyricsAdapter.convert(WorkshopApi.playback.getLyricsLines())
         val offset = if (localDocument != null) 0 else received?.offsetMs ?: 0
-        if (!closed) mutablePresentation.value = mutablePresentation.value.copy(document = document, offsetMs = offset)
+        if (!closed) mutablePresentation.value = mutablePresentation.value.copy(document = document, offsetMs = offset,
+            loading = document.lines.isEmpty() && mutablePresentation.value.loading && !hostUpdated)
     }
     private fun clear() {
         key = ""; initialized = false; localDocument = null; inbox.close()
+        if (currentIdentity() == null) clock.clear()
         if (!closed) mutablePresentation.value = LyricsPresentation()
     }
     private fun enqueue(action: () -> Unit) {

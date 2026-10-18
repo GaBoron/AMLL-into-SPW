@@ -9,4 +9,5 @@ internal data class RenderOptions(
     val hidePassed: Boolean = false,
     val romanization: Boolean = true,
     val reducedMotion: Boolean = false,
+    val coloredLyrics: Boolean = false,
 )

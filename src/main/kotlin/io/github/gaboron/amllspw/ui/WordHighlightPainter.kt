@@ -16,8 +16,11 @@ internal class WordHighlightPainter : AutoCloseable {
     private val glowPaints = mutableMapOf<Int, Paint>()
     private val atlas = GlyphAtlas()
     private val imagePaint = Paint()
+    private var tint = Color.White.toArgb()
+    private var tintFilter: org.jetbrains.skia.ColorFilter? = null
 
-    fun DrawScope.paint(layout: LineLayout, region: WordRegion, timeMs: Long, highlight: Float, options: RenderOptions) {
+    fun DrawScope.paint(layout: LineLayout, region: WordRegion, timeMs: Long, highlight: Float, options: RenderOptions, color: Color = Color.White) {
+        updateTint(color.toArgb())
         val word = region.word
         val progress = if (word.timed) ((timeMs - word.startMs).toFloat() / (word.endMs - word.startMs).coerceAtLeast(1)).coerceIn(0f, 1f) else 1f
         val totalWidth = region.rects.sumOf { it.width.toDouble() }.toFloat()
@@ -34,7 +37,7 @@ internal class WordHighlightPainter : AutoCloseable {
             val edgeX = if (region.rightToLeft) part.right - edge else part.left + edge
             val fadeWidth = layout.emPx * .5f
             val brush = if (progress >= .999f) SolidColor(Color.White) else Brush.horizontalGradient(
-                if (region.rightToLeft) listOf(Color.Transparent, Color.White) else listOf(Color.White, Color.Transparent),
+                if (region.rightToLeft) listOf(color.copy(alpha = 0f), color) else listOf(color, color.copy(alpha = 0f)),
                 edgeX - fadeWidth / 2, edgeX + fadeWidth / 2)
             // The measured line box includes descenders. Extending into the next line would
             // sample its neighbour's ink from the shared paragraph atlas and paint it twice.
@@ -78,5 +81,14 @@ internal class WordHighlightPainter : AutoCloseable {
             }
         }
     }
-    override fun close() { atlas.close(); imagePaint.close(); glowPaints.values.forEach { it.close() }; glowPaints.clear() }
+    private fun updateTint(argb: Int) {
+        if (tint == argb) return
+        tint = argb
+        imagePaint.colorFilter = null
+        tintFilter?.close()
+        tintFilter = if (argb == Color.White.toArgb()) null else
+            org.jetbrains.skia.ColorFilter.makeBlend(argb, org.jetbrains.skia.BlendMode.SRC_IN)
+        imagePaint.colorFilter = tintFilter
+    }
+    override fun close() { atlas.close(); imagePaint.close(); tintFilter?.close(); glowPaints.values.forEach { it.close() }; glowPaints.clear() }
 }

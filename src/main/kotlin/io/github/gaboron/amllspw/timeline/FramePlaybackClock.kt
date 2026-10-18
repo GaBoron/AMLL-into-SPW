@@ -15,6 +15,7 @@ internal class FramePlaybackClock {
     private var rate = 1.0
     private var correction = 0.0
     var discontinuity = false; private set
+    val playbackRate: Float get() = rate.toFloat()
 
     fun sample(rawMs: Long, frameNanos: Long, playing: Boolean? = null, seekGeneration: Long = 0): Long {
         val raw = rawMs.coerceAtLeast(0)
@@ -22,7 +23,7 @@ internal class FramePlaybackClock {
         discontinuity = lastFrame >= 0 && (seekGeneration != generation || raw < lastSample - 80 || abs(raw - value) > 250)
         if (lastFrame < 0 || discontinuity || playing == false) {
             value = raw.toDouble(); sampleStamp = frameNanos; windowStamp = frameNanos; windowSample = raw
-            correction = 0.0; running = playing == true
+            rate = 1.0; correction = 0.0; running = playing == true
         } else {
             val dtMs = ((frameNanos - lastFrame) / 1e6).coerceIn(0.0, 100.0)
             if (raw > lastSample) running = true
