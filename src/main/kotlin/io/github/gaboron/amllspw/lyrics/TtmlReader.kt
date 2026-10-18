@@ -72,9 +72,19 @@ class TtmlReader {
             visit(root, Range(0, MAX_TIME), 0)
             if (result.isEmpty() || !hasTiming) return null
             val lines = result.sortedWith(compareBy<LyricLine> { it.startMs }.thenBy { it.group }.thenBy { it.background })
+            val wordTiming = when (root.attr("timing")) {
+                "Word" -> true
+                "Line" -> false
+                else -> lines.any { line -> line.words.any { it.timed && it.text.isNotBlank() } }
+            }
             return LyricDocument(lines.mapIndexed { index, line ->
                 val following = lines.drop(index + 1).firstOrNull { it.startMs > line.startMs }?.startMs
-                if (line.endMs == MAX_TIME) line.copy(endMs = following ?: (line.startMs + 5_000)) else line
+                val bounded = if (line.endMs == MAX_TIME) line.copy(endMs = following ?: (line.startMs + 5_000)) else line
+                // Word-timed TTML can put a single sung unit directly in p (or x-bg),
+                // with its timing on that element instead of a nested span.
+                if (wordTiming && !bounded.hasWordTiming) bounded.copy(words = bounded.words.map { word ->
+                    word.copy(startMs = bounded.startMs, endMs = bounded.endMs, timed = word.text.isNotBlank())
+                }) else bounded
             }, LyricDocument.Origin.TTML, original, metadata = TtmlMetadata.read(root))
         }
 
