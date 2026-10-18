@@ -65,32 +65,37 @@ internal class ViewportMotion {
         val offset = if (now < manualUntil) manualOffset.coerceIn(-height * .65f, maxOf(0f, geometry.tops.last())) else aligned
         currentOffset = offset
         val lag = if (first || now < seekUntil) 0f else abs(rows[focusIndex].y.value - (geometry.tops[focusIndex] - offset))
-        val direct = immediate || (!isManual(now) && playing != false && interludeBefore == null &&
-            fallback.shouldSnap(focusIndex, playbackRate, lag, height))
+        val response = fallback.responseSeconds(focusIndex, playbackRate, lag, height,
+            !immediate && !isManual(now) && playing != false && interludeBefore == null)
+        val transitionDt = if (response == null) dt else dt * maxOf(1f, .3f / (response * 2.5f))
         rows.forEachIndexed { index, row ->
             val target = geometry.tops[index] - offset
             val stagger = (abs(index - focusIndex) * 45L).coerceAtMost(270) * 1_000_000
             val seeking = now < seekUntil
             row.y.configure(if (seeking) 90f else stiffness, if (seeking) 15f else sqrt(stiffness) * 2.2f)
-            if (first || direct) row.y.snap(target)
+            if (first || immediate) row.y.snap(target)
+            else if (response != null) row.y.follow(target, dt, response)
             else if (seeking || now - focusStamp >= stagger || now < manualUntil) row.y.update(target, dt)
             val scale = if (active[index]) 1f else .97f
-            if (first || seek || direct) row.scale.snap(scale) else row.scale.update(scale, dt)
+            if (first || seek || immediate) row.scale.snap(scale)
+            else if (response != null) row.scale.follow(scale, dt, response) else row.scale.update(scale, dt)
             val slide = if (row.expanded) 0f else -80f
-            if (first || seek || direct) row.backgroundSlide.snap(slide) else row.backgroundSlide.update(slide, dt)
+            if (first || seek || immediate) row.backgroundSlide.snap(slide)
+            else if (response != null) row.backgroundSlide.follow(slide, dt, response) else row.backgroundSlide.update(slide, dt)
             row.voices.forEachIndexed { voiceIndex, voice ->
                 val line = groups[index].rows[voiceIndex].line
                 val voiceScale = if (line.background && !active[index]) .75f else 1f
                 val opacity = if (!line.background) 1f else if (row.expanded) .4f else 0f
-                voice.highlight.update(active[index], dt, first || seek || direct)
-                voice.visibility.update(!hidePassed || timeMs < groups[index].rows.maxOf { it.line.endMs }, dt, first || seek || direct)
-                if (first || seek || direct) { voice.scale.snap(voiceScale); voice.opacity.snap(opacity) }
+                voice.highlight.update(active[index], transitionDt, first || seek || immediate)
+                voice.visibility.update(!hidePassed || timeMs < groups[index].rows.maxOf { it.line.endMs }, transitionDt, first || seek || immediate)
+                if (first || seek || immediate) { voice.scale.snap(voiceScale); voice.opacity.snap(opacity) }
+                else if (response != null) { voice.scale.follow(voiceScale, dt, response); voice.opacity.follow(opacity, dt, response) }
                 else { voice.scale.update(voiceScale, dt); voice.opacity.update(opacity, dt) }
             }
         }
         interludeY = geometry.interludeTop?.let { top ->
             val target = top + slotHeight / 2 - offset
-            if (first || seek || direct || resetInterlude || dotsAnchor != interludeBefore) dotsY.snap(target) else dotsY.update(target, dt)
+            if (first || seek || immediate || resetInterlude || dotsAnchor != interludeBefore) dotsY.snap(target) else dotsY.update(target, dt)
             dotsY.value
         }
         dotsAnchor = interludeBefore

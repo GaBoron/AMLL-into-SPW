@@ -1,8 +1,9 @@
 package io.github.gaboron.amllspw.ui
 
-/** Dense passages must not queue more motion than can finish before the next focus change. */
+/** Dense passages use a shared smooth response without accumulating stagger delays. */
 internal class LyricMotionFallback(starts: LongArray) {
     private val intervals: LongArray
+    private var catchingUp = false
 
     init {
         // Simultaneous voices are one change, rather than a burst of zero-length intervals.
@@ -16,10 +17,19 @@ internal class LyricMotionFallback(starts: LongArray) {
         intervals = LongArray(starts.size) { gaps.getValue(starts[it]) }
     }
 
-    fun shouldSnap(focus: Int, playbackRate: Float, lagPx: Float, viewportHeight: Float): Boolean {
-        val interval = intervals.getOrNull(focus) ?: return false
-        val rapid = interval.toDouble() / playbackRate.coerceIn(.1f, 8f) <= 600.0
-        val lagging = viewportHeight > 0f && lagPx > viewportHeight * .5f
-        return rapid || lagging
+    fun responseSeconds(focus: Int, playbackRate: Float, lagPx: Float, viewportHeight: Float,
+        enabled: Boolean = true): Float? {
+        val interval = intervals.getOrNull(focus)
+        if (!enabled || interval == null) { catchingUp = false; return null }
+        val seconds = (interval.toDouble() / playbackRate.coerceIn(.1f, 8f) / 1_000).toFloat()
+        val rapid = seconds <= .6f
+        if (viewportHeight > 0f && lagPx > viewportHeight * .5f) catchingUp = true
+        if (lagPx <= maxOf(2f, viewportHeight * .005f)) catchingUp = false
+        if (!rapid && !catchingUp) return null
+        val cadence = if (rapid) (seconds * .2f).coerceIn(.016f, .09f) else .09f
+        // Keep recovery active until settled, instead of switching modes around a lag threshold.
+        return if (catchingUp && viewportHeight > 0f)
+            (cadence * (viewportHeight * .25f / lagPx.coerceAtLeast(1f)).coerceIn(.25f, 1f))
+                .coerceAtLeast(.008f) else cadence
     }
 }
