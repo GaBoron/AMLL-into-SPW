@@ -18,6 +18,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.ExperimentalTextApi
@@ -37,6 +38,7 @@ internal fun InstrumentalPoetrySurface(poem: Poem, options: RenderOptions, lyric
     val nextPoem by rememberUpdatedState(onNextPoem)
     val color = if (options.coloredLyrics) Color(lyricColor) else Color.White
     val readingFamily = remember { FontFamily("SimSun") }
+    val density = LocalDensity.current
     BoxWithConstraints(modifier.fillMaxSize().clipToBounds()) {
         val headingSize = options.typography.fontSize(maxWidth.value)
         // Keep the reading scale independent of large lyric-font preferences.
@@ -77,13 +79,16 @@ internal fun InstrumentalPoetrySurface(poem: Poem, options: RenderOptions, lyric
                         BasicText(current.collection, style = options.typography.textStyle(11f).copy(
                             color = color.copy(alpha = .38f), textAlign = TextAlign.Center))
                         val footerSize = lyricFooterFontSize(headingSize)
-                        for (section in footer.sections) {
-                            Spacer(Modifier.height(if (section.attribution) 2.dp else 16.dp))
+                        for ((index, section) in footer.sections.withIndex()) {
+                            val gap = if (index == 0) 16.dp else with(density) {
+                                (footerSize * lyricFooterGapEm(index, section.attribution)).sp.toDp()
+                            }
+                            Spacer(Modifier.height(gap))
                             val sectionSize = if (section.attribution) lyricFooterAttributionFontSize(footerSize) else footerSize
                             BasicText(section.text, modifier = Modifier.fillMaxWidth(),
                                 style = options.typography.textStyle(sectionSize).copy(
                                     color = color.copy(alpha = .5f * if (section.attribution) FOOTER_ATTRIBUTION_OPACITY else 1f),
-                                    lineHeight = (sectionSize * 1.8f).sp))
+                                    lineHeight = (sectionSize * lyricFooterLineHeight(section.attribution)).sp))
                         }
                     }
                 }
