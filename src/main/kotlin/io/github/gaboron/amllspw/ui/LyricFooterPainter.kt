@@ -15,7 +15,7 @@ import kotlin.math.roundToInt
 /** Ordinary informational text: no lyric hit boxes, scaling, word masks or seek action. */
 internal class LyricFooterPainter : AutoCloseable {
     private val blurPaints = (0..10).map { level -> Paint().apply {
-        if (level > 0) imageFilter = ImageFilter.makeBlur(level * .5f, level * .5f, FilterTileMode.DECAL)
+        if (level > 0) ImageFilter.makeBlur(level * .5f, level * .5f, FilterTileMode.DECAL).use { imageFilter = it }
     } }
 
     fun DrawScope.paintFooter(layout: LyricFooterLayout?, motion: LyricFooterMotion, left: Float, color: Color) {

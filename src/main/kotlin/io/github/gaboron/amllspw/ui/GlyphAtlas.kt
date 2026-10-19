@@ -34,6 +34,7 @@ internal class GlyphAtlas : AutoCloseable {
             while (entries.size > 8) entries.removeFirst().image.close()
         }
     }
-    override fun close() { entries.forEach { it.image.close() }; entries.clear() }
+    fun clear() { entries.forEach { it.image.close() }; entries.clear() }
+    override fun close() = clear()
     companion object { const val RESOLUTION = 2f }
 }

@@ -11,7 +11,15 @@ import kotlin.math.roundToInt
 
 internal data class GlyphRegion(val bounds: Rect, val part: Int, val character: Int)
 internal data class WordRegion(val word: LyricWord, val rects: List<Rect>, val rightToLeft: Boolean,
-    val glyphs: List<GlyphRegion>, val characters: Int, val animation: WordAnimation.Prepared)
+    val glyphs: List<GlyphRegion>, val characters: Int, val animation: WordAnimation.Prepared) {
+    val partOffsets = FloatArray(rects.size)
+    val totalWidth: Float
+    init {
+        var width = 0f
+        rects.forEachIndexed { index, rect -> partOffsets[index] = width; width += rect.width }
+        totalWidth = width
+    }
+}
 internal data class LineLayout(
     val line: LyricLine,
     val main: TextLayoutResult,
@@ -21,7 +29,11 @@ internal data class LineLayout(
     val rubyHeight: Float,
     val emPx: Float,
     val inset: Float = 0f,
-)
+) {
+    // Include word float/glow and secondary text, while avoiding a viewport-sized layer per row.
+    val layerBounds = org.jetbrains.skia.Rect.makeLTRB(-emPx * 1.5f, -emPx * 1.5f,
+        main.size.width + emPx * 1.5f, height + emPx * 1.5f)
+}
 internal data class GroupLayout(val rows: List<LineLayout>, val top: Float, val height: Float)
 
 internal fun layoutLyrics(document: LyricDocument, measurer: TextMeasurer, width: Int, fontSize: Float, showSecondary: Boolean, romanization: Boolean,

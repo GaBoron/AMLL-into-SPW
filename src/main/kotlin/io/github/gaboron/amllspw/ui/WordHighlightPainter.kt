@@ -23,8 +23,6 @@ internal class WordHighlightPainter : AutoCloseable {
         updateTint(color.toArgb())
         val word = region.word
         val progress = if (word.timed) ((timeMs - word.startMs).toFloat() / (word.endMs - word.startMs).coerceAtLeast(1)).coerceIn(0f, 1f) else 1f
-        val totalWidth = region.rects.sumOf { it.width.toDouble() }.toFloat()
-        val offsets = region.rects.runningFold(0f) { width, rect -> width + rect.width }
         val texture = atlas.get(layout, this)
         for (glyph in region.glyphs) {
             val rect = glyph.bounds
@@ -33,12 +31,9 @@ internal class WordHighlightPainter : AutoCloseable {
             val lift = if (options.scale) animation.liftEm * layout.emPx * highlight else 0f
             val scale = if (options.scale) 1f + (animation.scale - 1f) * highlight else 1f
             val part = region.rects.getOrNull(glyph.part) ?: continue
-            val edge = progress * totalWidth - offsets[glyph.part]
+            val edge = progress * region.totalWidth - region.partOffsets[glyph.part]
             val edgeX = if (region.rightToLeft) part.right - edge else part.left + edge
             val fadeWidth = layout.emPx * .5f
-            val brush = if (progress >= .999f) SolidColor(Color.White) else Brush.horizontalGradient(
-                if (region.rightToLeft) listOf(color.copy(alpha = 0f), color) else listOf(color, color.copy(alpha = 0f)),
-                edgeX - fadeWidth / 2, edgeX + fadeWidth / 2)
             // The measured line box includes descenders. Extending into the next line would
             // sample its neighbour's ink from the shared paragraph atlas and paint it twice.
             val target = SkiaRect.makeLTRB(rect.left, rect.top, rect.right, rect.bottom)
@@ -55,7 +50,9 @@ internal class WordHighlightPainter : AutoCloseable {
                     val paint = glowPaints.getOrPut(radius) { Paint().apply {
                         ImageFilter.makeBlur(radius.toFloat(), radius.toFloat(), FilterTileMode.DECAL).use { imageFilter = it }
                     } }
-                    native.saveLayer(null, paint)
+                    val padding = radius * 3f
+                    native.saveLayer(SkiaRect.makeLTRB(target.left - padding, target.top - padding,
+                        target.right + padding, target.bottom + padding), paint)
                     try {
                         imagePaint.alpha = (animation.glow * highlight * 255).roundToInt().coerceIn(0, 255)
                         native.drawImageRect(texture.image, source, target, SamplingMode.LINEAR, imagePaint, true)
@@ -70,9 +67,13 @@ internal class WordHighlightPainter : AutoCloseable {
                     if (!unlit) {
                         if (fullyLit || progress >= .999f) native.drawImageRect(texture.image, source, target, SamplingMode.LINEAR, imagePaint, true)
                         else {
-                            native.saveLayer(null, null)
+                            native.saveLayer(target, null)
                             try {
                                 native.drawImageRect(texture.image, source, target, SamplingMode.LINEAR, imagePaint, true)
+                                // Only the glyph crossing the highlight edge needs a gradient.
+                                val brush = Brush.horizontalGradient(
+                                    if (region.rightToLeft) listOf(color.copy(alpha = 0f), color) else listOf(color, color.copy(alpha = 0f)),
+                                    edgeX - fadeWidth / 2, edgeX + fadeWidth / 2)
                                 drawRect(brush, Offset(target.left, target.top), androidx.compose.ui.geometry.Size(target.width, target.height), blendMode = BlendMode.SrcIn)
                             } finally { native.restore() }
                         }
@@ -81,6 +82,7 @@ internal class WordHighlightPainter : AutoCloseable {
             }
         }
     }
+    fun clearTextCache() { atlas.clear() }
     private fun updateTint(argb: Int) {
         if (tint == argb) return
         tint = argb

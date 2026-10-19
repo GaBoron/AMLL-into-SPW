@@ -11,14 +11,14 @@ import org.jetbrains.skia.Paint
 internal class LyricLinePainter(private val measurer: TextMeasurer) : AutoCloseable {
     // Cache native resources instead of allocating blur layers/filters for every animation frame.
     private val blurPaints = (0..4).map { level -> Paint().apply {
-        if (level > 0) imageFilter = ImageFilter.makeBlur(level * .6f, level * .6f, FilterTileMode.DECAL)
+        if (level > 0) ImageFilter.makeBlur(level * .6f, level * .6f, FilterTileMode.DECAL).use { imageFilter = it }
     } }
     private val words = WordHighlightPainter()
 
     fun DrawScope.paintLine(layout: LineLayout, positionMs: Long, active: Boolean, distance: Int, manual: Boolean, options: RenderOptions, highlight: Float = if (active) 1f else 0f, color: Color = Color.White) {
         val native = drawContext.canvas.skiaCanvas
         val blur = if (active || manual || !options.blur || options.reducedMotion) 0 else distance.coerceIn(0, 4)
-        if (blur > 0) native.saveLayer(null, blurPaints[blur])
+        if (blur > 0) native.saveLayer(layout.layerBounds, blurPaints[blur])
         try {
             translate(top = layout.rubyHeight) {
                 if (!layout.line.hasWordTiming || highlight <= .001f) {
@@ -44,5 +44,6 @@ internal class LyricLinePainter(private val measurer: TextMeasurer) : AutoClosea
         } finally { if (blur > 0) native.restore() }
     }
 
+    fun clearTextCache() { words.clearTextCache() }
     override fun close() { words.close(); blurPaints.forEach { it.close() } }
 }

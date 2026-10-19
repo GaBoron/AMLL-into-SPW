@@ -90,6 +90,7 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
             cache.fontSize = fontSize
             cache.groups = layoutLyrics(presentation.document, measurer, width, fontSize, showSecondary, options.romanization, options.typography)
             cache.footer = layoutLyricFooter(footerContent, measurer, width, fontSize, options.typography)
+            painter.clearTextCache()
         }
         viewport.height = size.height
         val frame = timeline.frame(position)
@@ -98,7 +99,7 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
         val motions = viewport.update(cache.groups, frame.focus, position, dt, nanos, seek,
             interval?.beforeGroup, interludeSlotHeight(fontSize * density.density, size.height), playing,
             options.hidePassed && playing != false && !viewport.isManual(nanos) && !scroll.isScrollInProgress, !options.spring || options.reducedMotion,
-            interlude.restarted, clock.playbackRate,
+            clock.playbackRate,
             footerHeight = cache.footer?.height ?: 0f,
             endOfLyrics = presentation.document.lines.isNotEmpty() && position >= presentation.document.durationMs,
             footerBlurEnabled = options.blur && !options.reducedMotion && pointer.position == null)
@@ -135,7 +136,7 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
                     // saveLayer is only needed at viewport edges; inner text draws directly.
                     val native = drawContext.canvas.skiaCanvas
                     val paint = if (edgeAlpha < .999f) org.jetbrains.skia.Paint().apply { alpha = (edgeAlpha * 255).toInt() } else null
-                    if (paint != null) native.saveLayer(null, paint)
+                    if (paint != null) native.saveLayer(row.layerBounds, paint)
                     try { with(painter) { paintLine(row, position, groupActive, abs(index - frame.focus), manual, options, voice.highlight.value, lyricColor) } }
                     finally { if (paint != null) { native.restore(); paint.close() } }
                 }
@@ -147,9 +148,9 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
         with(footerPainter) { paintFooter(cache.footer, viewport.footer, margin, lyricColor) }
         viewport.interludeY?.let { y ->
             val duet = interval?.beforeGroup?.let { cache.groups.getOrNull(it)?.rows?.firstOrNull()?.line?.duet } == true
-            cache.dotsOrigin = Offset(if (duet) size.width - margin - interludeWidth(fontSize * density.density) else margin, y)
+            val x = if (duet) size.width - margin - interludeWidth(fontSize * density.density) else margin
+            paintInterlude(interlude.snapshot, y, x, fontSize * density.density, hits.map { it.bounds }, options.reducedMotion, lyricColor)
         }
-        paintInterlude(interlude.snapshot, cache.dotsOrigin.y, cache.dotsOrigin.x, fontSize * density.density, hits.map { it.bounds }, options.reducedMotion, lyricColor)
     }
 }
 
@@ -162,5 +163,4 @@ private class LayoutCache {
     var lastPosition = -1L
     var backgroundTime = 0f
     var backgroundPosition = 0L
-    var dotsOrigin = Offset.Zero
 }

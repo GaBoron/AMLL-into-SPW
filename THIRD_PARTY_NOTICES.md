@@ -14,6 +14,8 @@
 
 `LyricFooterMotion.kt`、`LyricFooterLayout.kt`、`LyricFooterPainter.kt` 及 `ViewportMotion.kt` 的末尾底栏行为依据 AMLL core 的 [BottomLine](https://github.com/amll-dev/applemusic-like-lyrics/blob/ca0f41d67882d936c0365ffd99c16841ea2fa39d/packages/core/src/lyric-player/dom/bottom-line.ts)、[焦点状态机](https://github.com/amll-dev/applemusic-like-lyrics/blob/ca0f41d67882d936c0365ffd99c16841ea2fa39d/packages/core/src/lyric-player/base/focus.ts)及[样式](https://github.com/amll-dev/applemusic-like-lyrics/blob/ca0f41d67882d936c0365ffd99c16841ea2fa39d/packages/core/src/styles/lyric-player.module.css)（AGPL-3.0-only）适配，包括独立占位、曲末聚焦、弹簧入场、模糊及透明度过渡。原实现由 SteveXMH 及 AMLL 贡献者维护；本项目于 2026-10-18 改为原生文字布局与绘制，并接入元数据和来源内容。
 
+`poetry/poems.tsv` 包含 [chinese-poetry/chinese-poetry](https://github.com/chinese-poetry/chinese-poetry/tree/b8594f81a89752241442f2ce267d6f66f96704ee)（MIT，Copyright (c) 2016 JackeyGao）的 1,524 首完整短篇选集，保留来源文字及段落，转换为离线 TSV。选篇来自 `诗经/shijing.json`、`楚辞/chuci.json`、`曹操诗集/caocao.json`、`全唐诗/唐诗三百首.json`、`五代诗词/huajianji/huajianji-{1..9,x}-juan.json`、`五代诗词/nantang/poetrys.json`、`宋词/宋词三百首.json`、`元曲/yuanqu.json` 和 `纳兰性德/纳兰性德诗集.json`。原许可证随包置于 `licenses/chinese-poetry-MIT.txt`。
+
 插件包中的依赖：
 
 | 组件 | 许可证 | 用途 |

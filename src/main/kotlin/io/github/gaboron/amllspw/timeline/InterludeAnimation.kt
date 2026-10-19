@@ -6,22 +6,22 @@ internal class InterludeAnimation {
     val snapshot = InterludeSnapshot()
     private var phase = Phase.IDLE
     private var current: LyricTimeline.Interlude? = null
+    private var placement: LyricTimeline.Interlude? = null
     private var sequence: InterludeSequence? = null
     private var initialized = false
     private var anchor = 0L
     private var fadeElapsed = 0.0
     private var fadeInitial = 0f
-    var restarted = false; private set
-    val layoutInterval: LyricTimeline.Interlude? get() = current.takeIf { phase == Phase.PERFORMING }
+    // Keep the slot while dismissing so its dots continue to move with the lyrics.
+    val layoutInterval: LyricTimeline.Interlude? get() = placement.takeUnless { phase == Phase.IDLE }
 
     fun update(interval: LyricTimeline.Interlude?, positionMs: Long, dtMs: Double, playing: Boolean?, reset: Boolean) {
         val forceReset = reset || !initialized
         initialized = true
-        restarted = false
         if (interval != current || forceReset) {
             current = interval
             if (interval != null) {
-                restarted = true
+                placement = interval
                 anchor = if (forceReset) positionMs else interval.start
                 val hold = if (forceReset || interval.beforeGroup > 0) 500.0 else 0.0
                 sequence = InterludeSequence((interval.end - anchor).coerceAtLeast(0).toDouble(), hold)

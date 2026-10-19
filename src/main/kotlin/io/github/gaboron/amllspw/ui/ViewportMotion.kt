@@ -31,8 +31,6 @@ internal class ViewportMotion {
     private var stiffness = 170f
     private var seekUntil = 0L
     private val seekFollow = LyricSeekFollow()
-    private val dotsY = SpringMotion(0f, 90f, 15f)
-    private var dotsAnchor: Int? = null
 
     fun scroll(delta: Float, now: Long = lastNow) {
         seekFollow.cancel()
@@ -50,12 +48,13 @@ internal class ViewportMotion {
 
     fun update(groups: List<GroupLayout>, activeGroup: Int, timeMs: Long, dt: Float, now: Long, seek: Boolean,
         interludeBefore: Int? = null, slotHeight: Float = 0f, playing: Boolean? = null, hidePassed: Boolean = false, immediate: Boolean = false,
-        resetInterlude: Boolean = false, playbackRate: Float = 1f,
+        playbackRate: Float = 1f,
         footerHeight: Float = 0f, endOfLyrics: Boolean = false, footerBlurEnabled: Boolean = true): List<RowMotion> {
         lastNow = now
         seekFollow.update(timeMs, now)
         val manual = isManual(now)
         if (groups.isEmpty()) {
+            interludeY = null
             footer.update(0f, false, false, 0f, height, dt, true, 0f, 0f)
             return emptyList()
         }
@@ -119,12 +118,11 @@ internal class ViewportMotion {
             if (!footerBlurEnabled || footerFocused || manual) 0f else (1 + groups.size - focusIndex).coerceAtMost(5).toFloat(),
             height, dt, immediate || seek, if (seeking) 90f else stiffness, if (seeking) 15f else sqrt(stiffness) * 2.2f,
             first || seeking || manual || now - focusStamp >= footerStagger)
-        interludeY = geometry.interludeTop?.let { top ->
-            val target = top + slotHeight / 2 - offset
-            if (first || seek || immediate || resetInterlude || dotsAnchor != interludeBefore) dotsY.snap(target) else dotsY.update(target, dt)
-            dotsY.value
+        // The slot moves with the following row, including manual scroll and follow return.
+        // A separate spring can arrive first and paint the dots over lyrics still in transit.
+        interludeY = interludeBefore?.takeIf { it in rows.indices }?.let { index ->
+            rows[index].y.value - slotHeight / 2
         }
-        dotsAnchor = interludeBefore
         return rows
     }
 }

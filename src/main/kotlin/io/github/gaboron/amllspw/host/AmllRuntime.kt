@@ -8,6 +8,8 @@ import io.github.gaboron.amllspw.timeline.PlaybackClock
 import io.github.gaboron.amllspw.interop.TrackIdentity
 import io.github.gaboron.amllspw.interop.TtmlInbox
 import io.github.gaboron.amllspw.ui.LyricsPresentation
+import io.github.gaboron.amllspw.poetry.PoetryCatalog
+import io.github.gaboron.amllspw.poetry.TrackPoems
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.nio.file.Path
@@ -23,6 +25,7 @@ internal class AmllRuntime : AutoCloseable {
     val clock = PlaybackClock()
     private val local = LocalLyricsReader()
     private val inbox = TtmlInbox()
+    private val poems by lazy { TrackPoems(PoetryCatalog.load()) }
     private var localDocument: LyricDocument? = null
     @Volatile private var closed = false
     val isActive: Boolean get() = !closed && runCatching {
@@ -66,6 +69,13 @@ internal class AmllRuntime : AutoCloseable {
         WorkshopApi.playback.seekTo(position.coerceAtLeast(0))
     }
 
+    fun nextPoem(trackKey: String) = enqueue {
+        val current = mutablePresentation.value
+        if (trackKey != current.trackKey || !current.isInstrumental ||
+            currentIdentity()?.let { "${it.id}|${it.path}" } != trackKey) return@enqueue
+        mutablePresentation.value = current.copy(poem = poems.next(trackKey))
+    }
+
     fun receiveTtml(track: TrackIdentity, xml: String, offsetMs: Long): Boolean {
         if (!isActive) return false
         val accepted = inbox.submit(track, xml, offsetMs, ::currentIdentity)
@@ -103,8 +113,11 @@ internal class AmllRuntime : AutoCloseable {
         val received = inbox.current(TrackIdentity(media.id, media.path))
         val document = localDocument ?: received?.document ?: HostLyricsAdapter.convert(WorkshopApi.playback.getLyricsLines())
         val offset = if (localDocument != null) 0 else received?.offsetMs ?: 0
-        if (!closed) mutablePresentation.value = mutablePresentation.value.copy(document = document, offsetMs = offset,
-            loading = document.lines.isEmpty() && mutablePresentation.value.loading && !hostUpdated)
+        if (!closed) {
+            val next = mutablePresentation.value.copy(document = document, offsetMs = offset,
+                loading = document.lines.isEmpty() && mutablePresentation.value.loading && !hostUpdated)
+            mutablePresentation.value = next.copy(poem = if (next.isInstrumental) poems.forTrack(key) else null)
+        }
     }
     private fun clear() {
         key = ""; initialized = false; localDocument = null; inbox.close()
