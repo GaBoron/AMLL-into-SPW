@@ -23,7 +23,10 @@ internal class LyricFooterPainter : AutoCloseable {
         val native = drawContext.canvas.skiaCanvas
         native.saveLayer(null, blurPaints[(motion.blur * 2).roundToInt().coerceIn(0, 10)])
         try {
-            drawText(layout.text, color = color, alpha = motion.opacity, topLeft = Offset(left, motion.y + layout.padding))
+            for (row in layout.rows) {
+                drawText(row.text, color = color, alpha = motion.opacity * row.opacity,
+                    topLeft = Offset(left, motion.y + layout.padding + row.top))
+            }
             // Mask this layer only, so long footers can scroll through the edges without hiding
             // their entire text block or affecting the lyric layer beneath it.
             drawRect(Brush.verticalGradient(

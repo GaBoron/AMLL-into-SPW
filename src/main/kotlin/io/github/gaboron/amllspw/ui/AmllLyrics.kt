@@ -30,7 +30,9 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
     val painter = remember(measurer) { LyricLinePainter(measurer) }
     val footerPainter = remember { LyricFooterPainter() }
     DisposableEffect(painter, footerPainter) { onDispose { painter.close(); footerPainter.close() } }
-    val footerContent = bottomContent ?: remember(presentation.document) { LyricFooterContent.from(presentation.document) }
+    val footerContent = bottomContent ?: remember(presentation.document, presentation.footer) {
+        LyricFooterContent.from(presentation.document, presentation.footer)
+    }
     val viewport = remember(presentation.trackKey, presentation.document) { ViewportMotion() }
     val pointer = remember(viewport) { LyricPointerState() }
     val timeline = remember(presentation.document) { LyricTimeline(presentation.document) }
@@ -44,7 +46,7 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
     val density = LocalDensity.current
     var frameTime by remember { mutableLongStateOf(0L) }
     LaunchedEffect(Unit) { while (true) withFrameNanos { frameTime = it } }
-    val cache = remember(presentation.document, density, showSecondary, options.romanization, options.typography, footerContent) { LayoutCache() }
+    val cache = remember(presentation.document, density, showSecondary, options.romanization, options.typography) { LayoutCache() }
     val lyricColor = if (options.coloredLyrics) Color(presentation.lyricColor) else Color.White
     val scroll = rememberScrollableState { delta -> viewport.scroll(delta); delta }
     val hovering = pointer.position?.let { point -> viewport.hits.any { it.bounds.contains(point) } } == true
@@ -90,7 +92,12 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
             cache.fontSize = fontSize
             cache.groups = layoutLyrics(presentation.document, measurer, width, fontSize, showSecondary, options.romanization, options.typography)
             cache.footer = layoutLyricFooter(footerContent, measurer, width, fontSize, options.typography)
+            cache.footerContent = footerContent
             painter.clearTextCache()
+        }
+        if (cache.footerContent != footerContent) {
+            cache.footer = layoutLyricFooter(footerContent, measurer, width, fontSize, options.typography)
+            cache.footerContent = footerContent
         }
         viewport.height = size.height
         val frame = timeline.frame(position)
@@ -159,6 +166,7 @@ private class LayoutCache {
     var fontSize = -1f
     var groups = emptyList<GroupLayout>()
     var footer: LyricFooterLayout? = null
+    var footerContent: LyricFooterContent? = null
     var lastFrame = 0L
     var lastPosition = -1L
     var backgroundTime = 0f

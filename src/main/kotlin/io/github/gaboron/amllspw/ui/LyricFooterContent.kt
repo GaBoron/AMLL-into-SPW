@@ -2,14 +2,31 @@ package io.github.gaboron.amllspw.ui
 
 import io.github.gaboron.amllspw.lyrics.LyricDocument
 import io.github.gaboron.amllspw.lyrics.LyricSource
+import io.github.gaboron.amllspw.footer.FooterContribution
+
+internal data class LyricFooterSection(val text: String, val attribution: Boolean = false)
 
 /** Native bottom-content slot, kept outside the timed lyric groups and their interactions. */
-internal data class LyricFooterContent(val fields: List<Pair<String, String>> = emptyList()) {
-    val text: String = fields.joinToString("\n") { (label, value) -> if (label.isBlank()) value else "$label：$value" }
+internal data class LyricFooterContent(val fields: List<Pair<String, String>> = emptyList(),
+    val contributions: List<FooterContribution> = emptyList()) {
+    val sections: List<LyricFooterSection> = buildList {
+        if (fields.isNotEmpty()) {
+            add(LyricFooterSection(format(fields)))
+            add(LyricFooterSection("From: AMLL into SPW", attribution = true))
+        }
+        for (entry in contributions) {
+            add(LyricFooterSection(format(entry.fields)))
+            add(LyricFooterSection("From: ${entry.providerName}", attribution = true))
+        }
+    }
+    val text: String = sections.joinToString("\n") { it.text }
 
     companion object {
-        fun from(document: LyricDocument): LyricFooterContent {
-            if (document.lines.isEmpty()) return LyricFooterContent()
+        fun from(document: LyricDocument, contributions: List<FooterContribution> = emptyList()): LyricFooterContent =
+            LyricFooterContent(documentFields(document), contributions)
+
+        private fun documentFields(document: LyricDocument): List<Pair<String, String>> {
+            if (document.lines.isEmpty()) return emptyList()
             val fields = document.metadata.mapNotNull { entry ->
                 val value = entry.values.filter(String::isNotBlank).joinToString(" / ")
                 if (value.isBlank()) null else (labels[entry.key] ?: if (entry.key.startsWith("agent:"))
@@ -27,7 +44,11 @@ internal data class LyricFooterContent(val fields: List<Pair<String, String>> = 
                     else -> "来源未提供"
                 }
             }
-            return LyricFooterContent(fields + ("歌词来源" to source))
+            return fields + ("歌词来源" to source)
+        }
+
+        private fun format(fields: List<Pair<String, String>>): String = fields.joinToString("\n") { (key, value) ->
+            if (key.isBlank()) value else "$key：$value"
         }
 
         private val labels = mapOf(

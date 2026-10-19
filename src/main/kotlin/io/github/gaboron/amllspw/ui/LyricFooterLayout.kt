@@ -7,9 +7,11 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.sp
 import kotlin.math.sqrt
 
-internal data class LyricFooterLayout(val text: TextLayoutResult, val padding: Float) {
-    val height: Float get() = text.size.height + padding * 2
-}
+internal data class LyricFooterRow(val text: TextLayoutResult, val top: Float, val opacity: Float)
+internal data class LyricFooterLayout(val rows: List<LyricFooterRow>, val height: Float, val padding: Float)
+
+internal const val FOOTER_ATTRIBUTION_OPACITY = .55f
+internal fun lyricFooterAttributionFontSize(bodySize: Float): Float = maxOf(8f, bodySize - 2f)
 
 /** At lyric size 48, match the former footer at lyric size 28 (19.6 sp); grow gently either side. */
 internal fun lyricFooterFontSize(lyricSizeSp: Float): Float =
@@ -19,9 +21,17 @@ internal fun layoutLyricFooter(content: LyricFooterContent, measurer: TextMeasur
     fontSize: Float, typography: LyricTypography): LyricFooterLayout? {
     if (content.text.isBlank()) return null
     val size = lyricFooterFontSize(fontSize)
-    val text = measurer.measure(AnnotatedString(content.text), typography.textStyle(size).copy(lineHeight = (size * 1.8f).sp),
-        constraints = Constraints(maxWidth = width.coerceAtLeast(1)))
-    // Derive padding from measured pixels so it respects both display density and font scaling.
-    val emPx = (text.getLineBottom(0) - text.getLineTop(0)) / 1.8f
-    return LyricFooterLayout(text, emPx * .4f)
+    var top = 0f
+    var emPx = 0f
+    val rows = content.sections.mapIndexed { index, section ->
+        val sectionSize = if (section.attribution) lyricFooterAttributionFontSize(size) else size
+        val text = measurer.measure(AnnotatedString(section.text),
+            typography.textStyle(sectionSize).copy(lineHeight = (sectionSize * 1.8f).sp),
+            constraints = Constraints(maxWidth = width.coerceAtLeast(1)))
+        if (index == 0) emPx = (text.getLineBottom(0) - text.getLineTop(0)) / 1.8f
+        if (index > 0 && !section.attribution) top += emPx * .8f
+        LyricFooterRow(text, top, if (section.attribution) FOOTER_ATTRIBUTION_OPACITY else 1f)
+            .also { top += text.size.height }
+    }
+    return LyricFooterLayout(rows, top + emPx * .8f, emPx * .4f)
 }

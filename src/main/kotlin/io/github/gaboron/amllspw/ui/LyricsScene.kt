@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 
 /** Keeps the outgoing document/poem alive while switching between the two native surfaces. */
@@ -24,7 +25,8 @@ internal fun LyricsScene(presentation: LyricsPresentation, options: RenderOption
         }) { scene ->
         val poem = scene.poem
         if (scene.isInstrumental && poem != null) {
-            InstrumentalPoetrySurface(poem, options, scene.lyricColor, Modifier.fillMaxSize()) { onNextPoem(scene.trackKey) }
+            val footer = remember(scene.document, scene.footer) { LyricFooterContent.from(scene.document, scene.footer) }
+            InstrumentalPoetrySurface(poem, options, scene.lyricColor, Modifier.fillMaxSize(), footer) { onNextPoem(scene.trackKey) }
         } else {
             lyrics(scene)
         }

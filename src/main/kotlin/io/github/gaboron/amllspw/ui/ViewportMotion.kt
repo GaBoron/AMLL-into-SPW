@@ -55,7 +55,9 @@ internal class ViewportMotion {
         val manual = isManual(now)
         if (groups.isEmpty()) {
             interludeY = null
-            footer.update(0f, false, false, 0f, height, dt, true, 0f, 0f)
+            val offset = if (manual) manualOffset.coerceIn(-height * .3f, maxOf(0f, footerHeight - height * .38f)) else 0f
+            currentOffset = offset
+            footer.update(height * .52f - offset, footerHeight > 0, true, 0f, height, dt, immediate, 170f, 28f)
             return emptyList()
         }
         val first = rows.size != groups.size

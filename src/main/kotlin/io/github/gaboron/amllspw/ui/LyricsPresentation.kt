@@ -4,6 +4,7 @@ import io.github.gaboron.amllspw.lyrics.LyricDocument
 import io.github.gaboron.amllspw.lyrics.TtmlWriter
 import io.github.gaboron.amllspw.lyrics.InstrumentalLyrics
 import io.github.gaboron.amllspw.poetry.Poem
+import io.github.gaboron.amllspw.footer.FooterContribution
 
 internal data class LyricsPresentation(
     val trackKey: String = "",
@@ -13,6 +14,7 @@ internal data class LyricsPresentation(
     val lyricColor: Int = 0xffffffff.toInt(),
     val loading: Boolean = false,
     val poem: Poem? = null,
+    val footer: List<FooterContribution> = emptyList(),
 ) {
     val ttml: String = TtmlWriter.write(document)
     val isInstrumental: Boolean get() = trackKey.isNotEmpty() && !loading && InstrumentalLyrics.matches(document)

@@ -3,12 +3,14 @@ package io.github.gaboron.amllspw.host
 import com.xuncorp.spw.workshop.api.*
 import com.xuncorp.spw.workshop.api.hook.HookHandle
 import io.github.gaboron.amllspw.interop.TtmlBridge
+import io.github.gaboron.amllspw.interop.FooterBridge
 
 @OptIn(UnstableSpwWorkshopApi::class)
 class AmllPlugin(context: PluginContext) : SpwPlugin(context) {
     private var handle: HookHandle? = null
     private var active: AmllRuntime? = null
     private var bridge: TtmlBridge? = null
+    private var footerBridge: FooterBridge? = null
 
     @OptIn(UnstableSpwWorkshopApi::class)
     override fun start() {
@@ -26,8 +28,10 @@ class AmllPlugin(context: PluginContext) : SpwPlugin(context) {
             active = created
             current = created
             bridge = TtmlBridge(TtmlReceiver(created))
+            footerBridge = FooterBridge(FooterReceiver(created))
             created.start()
         } catch (e: Throwable) {
+            footerBridge?.close(); footerBridge = null
             bridge?.close(); bridge = null
             current = null; active = null
             handle?.close(); handle = null; created.close(); throw e
@@ -37,6 +41,7 @@ class AmllPlugin(context: PluginContext) : SpwPlugin(context) {
     override fun stop() {
         val old = active ?: return
         if (current === old) current = null
+        footerBridge?.close(); footerBridge = null
         bridge?.close(); bridge = null
         handle?.close(); handle = null
         active = null; old.close()

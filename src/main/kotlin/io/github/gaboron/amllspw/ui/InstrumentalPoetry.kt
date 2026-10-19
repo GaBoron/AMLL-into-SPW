@@ -33,7 +33,7 @@ import io.github.gaboron.amllspw.poetry.Poem
 @Composable
 @OptIn(ExperimentalTextApi::class)
 internal fun InstrumentalPoetrySurface(poem: Poem, options: RenderOptions, lyricColor: Int,
-    modifier: Modifier, onNextPoem: () -> Unit) {
+    modifier: Modifier, footer: LyricFooterContent = LyricFooterContent(), onNextPoem: () -> Unit) {
     val nextPoem by rememberUpdatedState(onNextPoem)
     val color = if (options.coloredLyrics) Color(lyricColor) else Color.White
     val readingFamily = remember { FontFamily("SimSun") }
@@ -76,6 +76,15 @@ internal fun InstrumentalPoetrySurface(poem: Poem, options: RenderOptions, lyric
                         Spacer(Modifier.height(24.dp))
                         BasicText(current.collection, style = options.typography.textStyle(11f).copy(
                             color = color.copy(alpha = .38f), textAlign = TextAlign.Center))
+                        val footerSize = lyricFooterFontSize(headingSize)
+                        for (section in footer.sections) {
+                            Spacer(Modifier.height(if (section.attribution) 2.dp else 16.dp))
+                            val sectionSize = if (section.attribution) lyricFooterAttributionFontSize(footerSize) else footerSize
+                            BasicText(section.text, modifier = Modifier.fillMaxWidth(),
+                                style = options.typography.textStyle(sectionSize).copy(
+                                    color = color.copy(alpha = .5f * if (section.attribution) FOOTER_ATTRIBUTION_OPACITY else 1f),
+                                    lineHeight = (sectionSize * 1.8f).sp))
+                        }
                     }
                 }
             }

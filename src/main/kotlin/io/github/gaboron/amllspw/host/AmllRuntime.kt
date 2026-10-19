@@ -7,6 +7,7 @@ import io.github.gaboron.amllspw.lyrics.*
 import io.github.gaboron.amllspw.timeline.PlaybackClock
 import io.github.gaboron.amllspw.interop.TrackIdentity
 import io.github.gaboron.amllspw.interop.TtmlInbox
+import io.github.gaboron.amllspw.interop.FooterInbox
 import io.github.gaboron.amllspw.ui.LyricsPresentation
 import io.github.gaboron.amllspw.poetry.PoetryCatalog
 import io.github.gaboron.amllspw.poetry.TrackPoems
@@ -25,6 +26,7 @@ internal class AmllRuntime : AutoCloseable {
     val clock = PlaybackClock()
     private val local = LocalLyricsReader()
     private val inbox = TtmlInbox()
+    private val footerInbox = FooterInbox(::currentIdentity)
     private val poems by lazy { TrackPoems(PoetryCatalog.load()) }
     private var localDocument: LyricDocument? = null
     @Volatile private var closed = false
@@ -86,6 +88,28 @@ internal class AmllRuntime : AutoCloseable {
         if (!isActive || currentIdentity()?.matches(track) != true) return false
         return inbox.clear(track).also { if (it) lyricsChanged() }
     }
+
+    fun receiveFooter(providerId: String?, providerName: String?, track: TrackIdentity,
+        keys: Array<out String?>?, values: Array<out String?>?): Boolean {
+        if (!isActive) return false
+        val accepted = footerInbox.submit(providerId, providerName, track, keys, values)
+        if (accepted) enqueue(::refreshFooter)
+        return accepted && !closed
+    }
+
+    fun clearFooter(providerId: String?, track: TrackIdentity): Boolean {
+        if (!isActive) return false
+        val cleared = footerInbox.clear(providerId, track)
+        if (cleared) enqueue(::refreshFooter)
+        return cleared && !closed
+    }
+
+    private fun refreshFooter() {
+        val track = currentIdentity() ?: return
+        val current = mutablePresentation.value
+        if (current.trackKey == "${track.id}|${track.path}")
+            mutablePresentation.value = current.copy(footer = footerInbox.current(track))
+    }
     private fun currentIdentity(): TrackIdentity? = runCatching {
         if (closed) null else WorkshopApi.playback.getCurrentMediaItem()?.let { TrackIdentity(it.id, it.path) }
     }.getOrNull()
@@ -96,7 +120,8 @@ internal class AmllRuntime : AutoCloseable {
         initialized = true
         key = next
         val previous = mutablePresentation.value
-        mutablePresentation.value = LyricsPresentation(trackKey = next, palette = previous.palette, loading = true)
+        mutablePresentation.value = LyricsPresentation(trackKey = next, palette = previous.palette, loading = true,
+            footer = footerInbox.current(TrackIdentity(media.id, media.path)))
         localDocument = runCatching { local.readTtml(Path.of(media.path)) }.getOrNull()
         if (closed) return
         refreshDocument(media)
@@ -115,12 +140,14 @@ internal class AmllRuntime : AutoCloseable {
         val offset = if (localDocument != null) 0 else received?.offsetMs ?: 0
         if (!closed) {
             val next = mutablePresentation.value.copy(document = document, offsetMs = offset,
+                footer = footerInbox.current(TrackIdentity(media.id, media.path)),
                 loading = document.lines.isEmpty() && mutablePresentation.value.loading && !hostUpdated)
             mutablePresentation.value = next.copy(poem = if (next.isInstrumental) poems.forTrack(key) else null)
         }
     }
     private fun clear() {
         key = ""; initialized = false; localDocument = null; inbox.close()
+        footerInbox.current(null)
         if (currentIdentity() == null) clock.clear()
         if (!closed) mutablePresentation.value = LyricsPresentation()
     }
@@ -128,5 +155,5 @@ internal class AmllRuntime : AutoCloseable {
         if (closed) return
         runCatching { worker.execute { if (!closed) runCatching(action).onFailure { System.err.println("AMLL: ${it.message}") } } }
     }
-    override fun close() { closed = true; inbox.close(); worker.shutdownNow(); preferences.close(); mutablePresentation.value = LyricsPresentation() }
+    override fun close() { closed = true; inbox.close(); footerInbox.close(); worker.shutdownNow(); preferences.close(); mutablePresentation.value = LyricsPresentation() }
 }

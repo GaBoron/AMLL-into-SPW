@@ -4,6 +4,8 @@ AMLL into SPW 向歌词提供插件开放进程内 TTML 接口。发送端可在
 
 接口通过 JVM 平台 MBeanServer 发现，跨 PF4J 类加载器工作，不需要依赖对方的 JAR，也不启动网络服务。仅在 AMLL into SPW 启用期间注册。
 
+如需补充作者、匹配来源等 key/value 信息，可另外使用 [底部信息栏接口](底部信息栏接口.md)。该接口独立于 TTML 提交，统一生成 `From: …`；原始 TTML 协议及实际歌词来源的判定保持不变。
+
 ## 协议 1
 
 ObjectName：`io.github.gaboron.amllspw:type=TtmlReceiver,version=1`
