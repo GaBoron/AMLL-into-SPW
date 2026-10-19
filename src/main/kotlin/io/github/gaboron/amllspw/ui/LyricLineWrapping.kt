@@ -9,8 +9,15 @@ import io.github.gaboron.amllspw.lyrics.LyricLine
 /** Display-only breaks retain a UTF-16 mapping back to the original timed words. */
 internal data class WrappedLyricText(val text: String, val offsets: IntArray)
 
-internal fun wrapLyricLine(line: LyricLine, width: Int, style: TextStyle, measurer: TextMeasurer): WrappedLyricText {
-    val text = line.text
+internal fun wrapLyricLine(line: LyricLine, width: Int, style: TextStyle, measurer: TextMeasurer): WrappedLyricText =
+    wrapLineText(line.text, width, style, measurer, line.takeIf { it.hasWordTiming })
+
+/** The same measured, punctuation-aware wrapping for stationary text such as poetry. */
+internal fun wrapBalancedText(text: String, width: Int, style: TextStyle, measurer: TextMeasurer): String =
+    wrapLineText(text, width, style, measurer, null).text
+
+private fun wrapLineText(text: String, width: Int, style: TextStyle, measurer: TextMeasurer,
+    timedLine: LyricLine?): WrappedLyricText {
     val breaks = mutableSetOf<Int>()
     var start = 0
     // Explicit TTML line breaks remain hard boundaries.
@@ -21,7 +28,7 @@ internal fun wrapLyricLine(line: LyricLine, width: Int, style: TextStyle, measur
             val unwrapped = measurer.measure(AnnotatedString(paragraph), style, softWrap = false)
             if (unwrapped.multiParagraph.maxIntrinsicWidth > width) {
                 val segments = wordSegments(paragraph, unwrapped)
-                val parts = if (line.hasWordTiming) dynamicParts(line, start, end) else segments
+                val parts = if (timedLine != null) dynamicParts(timedLine, start, end) else segments
                 val tokens = parts.map { range ->
                     val value = paragraph.substring(range.first, range.last + 1)
                     BreakToken(value, measurer.measure(AnnotatedString(value), style, softWrap = false)
@@ -29,7 +36,7 @@ internal fun wrapLyricLine(line: LyricLine, width: Int, style: TextStyle, measur
                 }
                 // Match the upstream calibration of non-dynamic text to its shaped full width.
                 val total = tokens.sumOf { it.width }
-                val calibrated = if (!line.hasWordTiming && total > 0) tokens.map {
+                val calibrated = if (timedLine == null && total > 0) tokens.map {
                     it.copy(width = it.width * unwrapped.multiParagraph.maxIntrinsicWidth / total)
                 } else tokens
                 val boundaries = segments.filter { range ->

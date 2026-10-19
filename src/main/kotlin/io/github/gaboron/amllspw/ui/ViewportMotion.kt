@@ -114,9 +114,10 @@ internal class ViewportMotion {
         }
         val seeking = now < seekUntil
         val footerStagger = (abs(groups.size - motionFocus) * 45L).coerceAtMost(270) * 1_000_000
+        // Seeks retarget the current footer animation; only disabling motion skips transitions.
         footer.update(geometry.footerTop - offset, footerHeight > 0, footerFocused,
             if (!footerBlurEnabled || footerFocused || manual) 0f else (1 + groups.size - focusIndex).coerceAtMost(5).toFloat(),
-            height, dt, immediate || seek, if (seeking) 90f else stiffness, if (seeking) 15f else sqrt(stiffness) * 2.2f,
+            height, dt, immediate, if (seeking) 90f else stiffness, if (seeking) 15f else sqrt(stiffness) * 2.2f,
             first || seeking || manual || now - focusStamp >= footerStagger)
         // The slot moves with the following row, including manual scroll and follow return.
         // A separate spring can arrive first and paint the dots over lyrics still in transit.

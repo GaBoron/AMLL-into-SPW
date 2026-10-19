@@ -4,36 +4,29 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontSynthesis
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.platform.Font
 import androidx.compose.ui.unit.sp
 
-internal enum class LyricFontWeight(val value: String, private val fileName: String) {
-    EXTRA_LIGHT("200", "PingFang-ExtraLight.ttf"),
-    LIGHT("300", "PingFang-Light.ttf"),
-    REGULAR("400", "PingFang-Regular.ttf"),
-    MEDIUM("500", "PingFang-Medium.ttf"),
-    BOLD("700", "PingFang-Bold.ttf"),
-    HEAVY("900", "PingFang-Heavy.ttf");
+internal enum class LyricFontWeight(val value: String, weight: Int = value.toInt()) {
+    // Preserve the existing preference key; the variable font's real lower limit is 250.
+    EXTRA_LIGHT("200", 250),
+    LIGHT("300"),
+    REGULAR("400"),
+    MEDIUM("500"),
+    BOLD("700"),
+    HEAVY("900");
 
-    val fontWeight = FontWeight(value.toInt())
-    // Each supplied face reports Regular in its metadata. Select the actual file and disable
-    // synthesis instead of asking the system to infer a different weight from that metadata.
-    // Keep Compose's platform font resolver: characters missing from this face use system fonts.
-    val family: FontFamily by lazy {
-        val bytes = checkNotNull(LyricFontWeight::class.java.getResourceAsStream("/fonts/$fileName")) {
-            "Missing bundled lyric font: $fileName"
-        }.use { it.readBytes() }
-        FontFamily(Font(identity = "io.github.gaboron.amllspw/fonts/$fileName", data = bytes, weight = fontWeight))
-    }
+    val fontWeight = FontWeight(weight)
+    val family: FontFamily by lazy { SourceHanSansFont.family(fontWeight) }
 
     companion object {
-        fun fromPreference(value: String) = entries.firstOrNull { it.value == value } ?: BOLD
+        val DEFAULT = MEDIUM
+        fun fromPreference(value: String) = entries.firstOrNull { it.value == value } ?: DEFAULT
     }
 }
 
 /** Typography shared by main lyrics, background vocals, translations, romanization and ruby. */
 internal data class LyricTypography(
-    val weight: LyricFontWeight = LyricFontWeight.BOLD,
+    val weight: LyricFontWeight = LyricFontWeight.DEFAULT,
     val fontSizeSp: Int? = null,
 ) {
     fun fontSize(viewportWidthDp: Float): Float =

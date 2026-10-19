@@ -21,6 +21,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.ExperimentalTextApi
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -62,14 +63,14 @@ internal fun InstrumentalPoetrySurface(poem: Poem, options: RenderOptions, lyric
                             contentDescription = "诗词"
                             customActions = listOf(CustomAccessibilityAction("换一首诗词") { nextPoem(); true })
                         }.padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        BasicText(current.title, style = TextStyle(color = color.copy(alpha = .88f), fontFamily = readingFamily,
+                        BalancedPoetryText(current.title, style = TextStyle(color = color.copy(alpha = .88f), fontFamily = readingFamily,
                             fontWeight = FontWeight.Medium, fontSize = (readingSize * 1.05f).sp,
                             lineHeight = (readingSize * 1.5f).sp, textAlign = TextAlign.Center))
                         Spacer(Modifier.height(10.dp))
                         BasicText(current.author, style = options.typography.textStyle(13f).copy(
                             color = color.copy(alpha = .52f), textAlign = TextAlign.Center))
                         Spacer(Modifier.height(28.dp))
-                        BasicText(current.text, style = TextStyle(color = color.copy(alpha = .78f), fontFamily = readingFamily,
+                        BalancedPoetryText(current.text, style = TextStyle(color = color.copy(alpha = .78f), fontFamily = readingFamily,
                             fontSize = readingSize.sp, lineHeight = (readingSize * 1.85f).sp,
                             letterSpacing = .6.sp, textAlign = TextAlign.Center))
                         Spacer(Modifier.height(24.dp))
@@ -79,5 +80,16 @@ internal fun InstrumentalPoetrySurface(poem: Poem, options: RenderOptions, lyric
                 }
             }
         }
+    }
+}
+
+/** Measure the actual reading column, including window scaling, before choosing lyric-style breaks. */
+@Composable
+private fun BalancedPoetryText(text: String, style: TextStyle) {
+    val measurer = rememberTextMeasurer()
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val width = constraints.maxWidth.coerceAtLeast(1)
+        val wrapped = remember(text, width, style, measurer) { wrapBalancedText(text, width, style, measurer) }
+        BasicText(wrapped, modifier = Modifier.fillMaxWidth(), style = style)
     }
 }
