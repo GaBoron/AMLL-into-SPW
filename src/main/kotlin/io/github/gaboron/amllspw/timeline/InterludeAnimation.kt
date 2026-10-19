@@ -18,6 +18,14 @@ internal class InterludeAnimation {
     fun update(interval: LyricTimeline.Interlude?, positionMs: Long, dtMs: Double, playing: Boolean?, reset: Boolean) {
         val forceReset = reset || !initialized
         initialized = true
+        // A seek must release the old slot before the viewport follows its new focus.
+        // Only natural playback keeps the outgoing dots and their slot for dismissal.
+        if (forceReset) {
+            phase = Phase.IDLE
+            placement = null
+            sequence = null
+            snapshot.hide()
+        }
         if (interval != current || forceReset) {
             current = interval
             if (interval != null) {
