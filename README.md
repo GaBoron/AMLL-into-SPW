@@ -6,7 +6,7 @@
 
 无需独立窗口 · 保留原有播放控制
 
-[下载安装](https://github.com/GaBoron/AMLL-into-SPW/releases/latest) · [完整功能](docs/功能说明.md) · [TTML 接入指南](docs/TTML互通.md)
+[下载安装](https://github.com/GaBoron/AMLL-into-SPW/releases/latest) · [完整功能](docs/功能说明.md) · [TTML 接入指南](docs/TTML互通.md) · [插件兼容性评估](docs/插件兼容性评估.md)
 
 </div>
 
