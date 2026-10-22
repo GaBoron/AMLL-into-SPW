@@ -2,6 +2,7 @@ package io.github.gaboron.amllspw.ui
 
 import io.github.gaboron.amllspw.lyrics.LyricDocument
 import io.github.gaboron.amllspw.lyrics.LyricSource
+import io.github.gaboron.amllspw.lyrics.InstrumentalLyrics
 import io.github.gaboron.amllspw.footer.FooterContribution
 
 internal data class LyricFooterSection(val text: String, val attribution: Boolean = false)
@@ -26,7 +27,7 @@ internal data class LyricFooterContent(val fields: List<Pair<String, String>> = 
             LyricFooterContent(documentFields(document), contributions)
 
         private fun documentFields(document: LyricDocument): List<Pair<String, String>> {
-            if (document.lines.isEmpty()) return emptyList()
+            if (InstrumentalLyrics.matches(document)) return emptyList()
             val fields = document.metadata.mapNotNull { entry ->
                 val value = entry.values.filter(String::isNotBlank).joinToString(" / ")
                 if (value.isBlank()) null else (labels[entry.key] ?: if (entry.key.startsWith("agent:"))
