@@ -40,6 +40,15 @@ spmod {
     PluginPermissions = listOf(PluginPermission.CLASS_TRANSFORM, PluginPermission.LIBRARY_READ)
 }
 
+tasks.named<Jar>("jar") {
+    val fontsDirectory = layout.projectDirectory.dir("src/main/resources/fonts")
+    // Incremental resource output can retain fonts whose source files were removed.
+    exclude {
+        !it.isDirectory && it.path.startsWith("fonts/") &&
+            !fontsDirectory.file(it.path.removePrefix("fonts/")).asFile.isFile
+    }
+}
+
 val sourceArchive = tasks.register<Zip>("sourceArchive") {
     archiveFileName.set("amll-into-spw-${project.version}-source.zip")
     destinationDirectory.set(layout.buildDirectory.dir("distributions"))
