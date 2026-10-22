@@ -17,10 +17,11 @@ internal class JapaneseReadings {
             if (start < consumed) continue
             if (start < 0 || start + surface.length > text.length ||
                 text.substring(start, start + surface.length) != surface) continue
-            // A stem can end in a small tsu (e.g. 光っ + て). Read only the adjacent token;
-            // punctuation, spaces and line breaks must not become pronunciation context.
-            val following = tokens.getOrNull(tokenIndex + 1)?.takeIf {
-                it.position == start + surface.length
+            // Horizontal spacing can separate sung units (だっ た). It does not cancel a
+            // sokuon; punctuation and line breaks still stop pronunciation context.
+            val following = tokens.asSequence().drop(tokenIndex + 1).firstOrNull { it.surface.any { char -> !char.isWhitespace() } }?.takeIf {
+                it.position >= start + surface.length &&
+                    text.substring(start + surface.length, it.position).all { char -> char == ' ' || char == '\t' || char == '\u3000' }
             }?.let { it.reading.takeUnless { reading -> reading == "*" } ?: it.surface }.orEmpty()
             // IPADIC can split these irregular person counters into numeral + suffix.
             val person = when {

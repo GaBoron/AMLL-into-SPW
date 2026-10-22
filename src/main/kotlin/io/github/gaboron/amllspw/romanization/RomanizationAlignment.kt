@@ -6,40 +6,43 @@ import java.util.Locale
 /** Whole-line exact alignment with bounded spelling alternatives, never positional guessing. */
 internal object RomanizationAlignment {
     internal data class Normalized(val text: String, val offsets: List<IntRange>)
-    private data class Path(val position: Int, val ranges: List<IntRange>)
+    data class Match(val reading: JapaneseReading, val text: String)
+    private data class Part(val reading: JapaneseReading, val range: IntRange)
+    private data class Path(val position: Int, val parts: List<Part>)
+    private val longVowels = setOf("aa", "ii", "uu", "ee", "oo", "ou", "ei")
 
-    /** A macron can cover two source morae (ボー -> bō); keep that spelling indivisible. */
-    fun groupLongVowels(readings: List<JapaneseReading>): List<JapaneseReading> = buildList {
-        for (reading in readings) {
-            val previous = lastOrNull()
-            val pair = previous?.roman?.takeLast(1).orEmpty() + reading.roman
-            if (previous != null && previous.annotate && reading.annotate && previous.end == reading.start &&
-                pair in setOf("aa", "ii", "uu", "ee", "oo", "ou", "ei")) {
-                this[lastIndex] = previous.copy(end = reading.end, roman = previous.roman + reading.roman)
-            } else add(reading)
-        }
-    }
-
-    fun match(readings: List<JapaneseReading>, romanization: String): List<String>? {
+    fun match(readings: List<JapaneseReading>, romanization: String): List<Match>? {
         if (readings.isEmpty() || readings.any { it.roman.isBlank() } || '\n' in romanization) return null
         val source = normalize(romanization)
-        var paths = listOf(Path(0, emptyList()))
-        for (reading in readings) {
-            val variants = variants(reading)
-            val next = paths.flatMap { path -> variants.filter {
-                it.isNotEmpty() && source.text.startsWith(it, path.position)
-            }.map { Path(path.position + it.length, path.ranges + listOf(path.position until path.position + it.length)) } }
+        val pending = Array(readings.size + 1) { mutableListOf<Path>() }
+        pending[0] += Path(0, emptyList())
+        fun boundary(index: Int) = index == 0 || index == source.text.length ||
+            source.offsets[index - 1].last < source.offsets[index].first
+        for ((index, reading) in readings.withIndex()) {
             // Keep at most two distinct histories for each cursor: enough to detect ambiguity.
-            paths = next.groupBy { it.position }.values.flatMap { it.distinct().take(2) }
-            if (paths.isEmpty() || paths.size > 64) return null
+            val paths = pending[index].groupBy { it.position }.values.flatMap { it.distinct().take(2) }
+            if (paths.size > 64) return null
+            val next = readings.getOrNull(index + 1)
+            val combined = next?.takeIf { reading.annotate && it.annotate && reading.end == it.start &&
+                reading.roman.takeLast(1) + it.roman in longVowels
+            }?.let { reading.copy(end = it.end, roman = reading.roman + it.roman) }
+            for (path in paths) for ((count, candidate) in listOfNotNull(1 to reading, combined?.let { 2 to it })) {
+                for (variant in variants(candidate)) {
+                    val end = path.position + variant.length
+                    if (variant.isEmpty() || end > source.text.length || !boundary(end) ||
+                        !source.text.startsWith(variant, path.position)) continue
+                    val range = path.position until end
+                    val raw = romanization.substring(source.offsets[range.first].first, source.offsets[range.last].last + 1)
+                    // Only an actual macron joins two units. Repeated あ / い keep their own clocks.
+                    if (count == 2 && raw.none { it.lowercaseChar() in "āīūēō" }) continue
+                    pending[index + count] += Path(end, path.parts + Part(candidate, range))
+                }
+            }
         }
-        val complete = paths.filter { it.position == source.text.length }
+        val complete = pending.last().filter { it.position == source.text.length }.distinct()
         if (complete.size != 1) return null
-        if (complete.single().ranges.zipWithNext().any { (left, right) ->
-            source.offsets[left.last].last >= source.offsets[right.first].first
-        }) return null
-        return complete.single().ranges.map { range ->
-            romanization.substring(source.offsets[range.first].first, source.offsets[range.last].last + 1)
+        return complete.single().parts.map { (reading, range) ->
+            Match(reading, romanization.substring(source.offsets[range.first].first, source.offsets[range.last].last + 1))
         }
     }
 

@@ -138,7 +138,8 @@ class TtmlReader {
                 val romanNodes = inlineRoman.ifEmpty { attachedRoman.take(1) }
                 val syllables = romanNodes.flatMap { roman ->
                     val ancestor = generateSequence(roman.parentNode as? Element) { it.parentNode as? Element }
-                        .takeWhile { it !== e }.firstOrNull { it in ranges }
+                        // A background span owns the voice interval, not a romanization syllable.
+                        .takeWhile { it !== element }.firstOrNull { it in ranges }
                     val romanRange = range(roman, ancestor?.let { ranges[it] } ?: rr)
                     val explicit = roman.hasAttribute("begin") || ancestor?.let {
                         it.local() == "span" && (it.hasAttribute("begin") || it.hasAttribute("end") || it.hasAttribute("dur"))

@@ -41,15 +41,14 @@ internal class JapaneseAnnotations {
     private fun isKana(char: Char): Boolean = char in '\u3041'..'\u3096' || char in '\u30a1'..'\u30fa' || char in '\uff66'..'\uff9d'
 
     private fun annotate(line: LyricLine): List<LyricAnnotation> {
-        val original = readings.analyze(line.text)
-        val spans = if (line.romanization.isNotBlank()) RomanizationAlignment.groupLongVowels(original) else original
+        val spans = readings.analyze(line.text)
         val supplied = line.romanization.takeIf(String::isNotBlank)?.let { RomanizationAlignment.match(spans, it) }
         val existing = line.rubyAnnotations()
         if (line.romanization.isNotBlank() && supplied == null) return PartialRomanizationAlignment
             .align(line.text, spans, line.romanization).filter { span -> existing.none { it.start < span.end && span.start < it.end } }
-        return spans.mapIndexedNotNull { index, span ->
+        return (supplied ?: spans.map { RomanizationAlignment.Match(it, it.roman) }).mapNotNull { (span, roman) ->
             if (!span.annotate || span.roman.isBlank() || existing.any { it.start < span.end && span.start < it.end }) null
-            else LyricAnnotation(span.start, span.end, listOf(LyricSyllable(supplied?.get(index) ?: span.roman)))
+            else LyricAnnotation(span.start, span.end, listOf(LyricSyllable(roman)))
         }
     }
 }
