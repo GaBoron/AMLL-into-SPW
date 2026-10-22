@@ -13,6 +13,7 @@ import kotlin.math.roundToInt
 
 /** Word masking, grapheme float and long-tone emphasis share the same shaped text layout. */
 internal class WordHighlightPainter : AutoCloseable {
+    private var closed = false
     private val glowPaints = mutableMapOf<Int, Paint>()
     private val atlas = GlyphAtlas()
     private val imagePaint = Paint()
@@ -92,5 +93,14 @@ internal class WordHighlightPainter : AutoCloseable {
             org.jetbrains.skia.ColorFilter.makeBlend(argb, org.jetbrains.skia.BlendMode.SRC_IN)
         imagePaint.colorFilter = tintFilter
     }
-    override fun close() { atlas.close(); imagePaint.close(); tintFilter?.close(); glowPaints.values.forEach { it.close() }; glowPaints.clear() }
+    override fun close() {
+        if (closed) return
+        closed = true
+        atlas.close()
+        imagePaint.close()
+        tintFilter?.close()
+        tintFilter = null
+        glowPaints.values.forEach { it.close() }
+        glowPaints.clear()
+    }
 }

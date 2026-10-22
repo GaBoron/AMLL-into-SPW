@@ -9,6 +9,7 @@ import org.jetbrains.skia.ImageFilter
 import org.jetbrains.skia.Paint
 
 internal class LyricLinePainter(private val measurer: TextMeasurer) : AutoCloseable {
+    private var closed = false
     // Cache native resources instead of allocating blur layers/filters for every animation frame.
     private val blurPaints = (0..4).map { level -> Paint().apply {
         if (level > 0) ImageFilter.makeBlur(level * .6f, level * .6f, FilterTileMode.DECAL).use { imageFilter = it }
@@ -45,5 +46,10 @@ internal class LyricLinePainter(private val measurer: TextMeasurer) : AutoClosea
     }
 
     fun clearTextCache() { words.clearTextCache() }
-    override fun close() { words.close(); blurPaints.forEach { it.close() } }
+    override fun close() {
+        if (closed) return
+        closed = true
+        words.close()
+        blurPaints.forEach { it.close() }
+    }
 }
