@@ -14,13 +14,16 @@ internal data class RubyRun(val syllable: LyricSyllable, val text: TextLayoutRes
 internal data class RubyLineText(val main: TextLayoutResult, val offsets: IntArray, val runs: List<RubyRun>, val emPx: Float)
 
 /** Measures ruby once with the lyric layout, reserving horizontal and per-row vertical space. */
-internal fun layoutRubyLine(line: LyricLine, annotations: List<LyricAnnotation>, width: Int,
+internal fun layoutRubyLine(line: LyricLine, sourceAnnotations: List<LyricAnnotation>, width: Int,
     style: TextStyle, measurer: TextMeasurer): RubyLineText {
     val probe = measurer.measure(AnnotatedString("Ag"), style, softWrap = false)
     val density = probe.layoutInput.density
     val emPx = with(density) { style.fontSize.toPx() }
     val rubyStyle = style.copy(fontSize = (style.fontSize.value * .5f).sp,
         lineHeight = (style.fontSize.value * .55f).sp, textAlign = TextAlign.Left, letterSpacing = 0.sp)
+    val annotations = distributeWideRuby(line.text, sourceAnnotations, width) {
+        measurer.measure(AnnotatedString(it), style, softWrap = false).multiParagraph.maxIntrinsicWidth
+    }
     data class Atom(val start: Int, val end: Int, val ruby: LyricAnnotation?, val padding: Float, val width: Float)
     val starts = annotations.associateBy { it.start }
     val rubyLayouts = annotations.associateWith { annotation -> annotation.syllables.map {
@@ -94,9 +97,12 @@ internal fun layoutRubyLine(line: LyricLine, annotations: List<LyricAnnotation>,
             measurer.measure(AnnotatedString(it.text), rubyStyle.copy(fontSize = (rubyStyle.fontSize.value * shrink).sp), softWrap = false)
         } else original
         val totalWidth = measured.sumOf { it.size.width.toDouble() }.toFloat()
-        var x = ((left + right - totalWidth) / 2).coerceIn(0f, (width - totalWidth).coerceAtLeast(0f))
+        val distribute = annotation.distribute && measured.size > 1
+        val contentWidth = if (distribute) maxOf(totalWidth, available) else totalWidth
+        val gap = if (distribute) (contentWidth - totalWidth).coerceAtLeast(0f) / (measured.size - 1) else 0f
+        var x = ((left + right - contentWidth) / 2).coerceIn(0f, (width - contentWidth).coerceAtLeast(0f))
         val maskLeft = x
-        val maskRight = x + totalWidth
+        val maskRight = x + contentWidth
         val y = main.getLineBaseline(row) - probe.firstBaseline - measured.maxOf { it.size.height } - emPx * .04f
         val parts = line.words.mapIndexedNotNull { index, word ->
             val start = maxOf(wordOffsets[index], annotation.start)
@@ -110,7 +116,7 @@ internal fun layoutRubyLine(line: LyricLine, annotations: List<LyricAnnotation>,
         val weight = parts.sumOf { it.weight.toDouble() }.toFloat().coerceAtLeast(1f)
         val motion = AnnotationMotion(parts.map { it.copy(weight = it.weight / weight) }, line.background)
         annotation.syllables.mapIndexed { index, syllable ->
-            RubyRun(syllable, measured[index], Offset(x, y), motion, maskLeft, maskRight).also { x += measured[index].size.width }
+            RubyRun(syllable, measured[index], Offset(x, y), motion, maskLeft, maskRight).also { x += measured[index].size.width + gap }
         }
     }
     return RubyLineText(main, offsets, runs, emPx)

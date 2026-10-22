@@ -4,7 +4,7 @@ package io.github.gaboron.amllspw.lyrics
 data class LyricSyllable(val text: String, val startMs: Long = 0, val endMs: Long = 0, val timed: Boolean = false)
 
 /** Display annotation over a half-open UTF-16 range; never splits or retimes source words. */
-data class LyricAnnotation(val start: Int, val end: Int, val syllables: List<LyricSyllable>) {
+data class LyricAnnotation(val start: Int, val end: Int, val syllables: List<LyricSyllable>, val distribute: Boolean = false) {
     val text: String get() = syllables.joinToString("") { it.text }
 }
 

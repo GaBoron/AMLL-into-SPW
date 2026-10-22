@@ -30,6 +30,7 @@ internal data class LineLayout(
     val emPx: Float,
     val inset: Float = 0f,
     val rubyRuns: List<RubyRun> = emptyList(),
+    val upperRomanization: TextLayoutResult? = null,
 ) {
     // Include word float/glow and secondary text, while avoiding a viewport-sized layer per row.
     val layerBounds = org.jetbrains.skia.Rect.makeLTRB(-emPx * 1.5f, -emPx * 1.5f,
@@ -54,7 +55,6 @@ internal fun layoutLyrics(document: LyricDocument, measurer: TextMeasurer, width
                 WrappedLyricText(ruby.main.layoutInput.text.text, ruby.offsets)
             val constraints = Constraints(minWidth = rowWidth, maxWidth = rowWidth)
             val main = ruby?.main ?: measurer.measure(AnnotatedString(wrapped.text), style, constraints = constraints)
-            val rubyHeight = 0f
             var offset = 0
             val regions = line.words.mapIndexed { wordIndex, word ->
                 val byRow = linkedMapOf<Int, Rect>()
@@ -87,12 +87,16 @@ internal fun layoutLyrics(document: LyricDocument, measurer: TextMeasurer, width
             }
             val romanLine = line.romanization.takeIf { romanization && (line.annotations.isEmpty() ||
                 line.romanizationSyllables.any { syllable -> line.annotations.none { syllable in it.syllables } }) }.orEmpty()
-            val secondary = if (showSecondary) listOf(line.translation, romanLine).filter(String::isNotBlank).map {
-                measurer.measure(AnnotatedString(it), style.copy(fontSize = (size * .48f).sp, lineHeight = (size * .68f).sp), constraints = constraints)
+            val auxiliaryStyle = style.copy(fontSize = (size * .48f).sp, lineHeight = (size * .68f).sp)
+            val upper = if (line.romanizationAbove && romanLine.isNotBlank())
+                measurer.measure(AnnotatedString(romanLine), auxiliaryStyle, constraints = constraints) else null
+            val rubyHeight = upper?.let { it.size.height + 5f } ?: 0f
+            val secondary = if (showSecondary) listOf(line.translation, romanLine.takeUnless { line.romanizationAbove }.orEmpty()).filter(String::isNotBlank).map {
+                measurer.measure(AnnotatedString(it), auxiliaryStyle, constraints = constraints)
             } else emptyList()
             LineLayout(line, main, regions, secondary, main.size.height + rubyHeight + secondary.sumOf { it.size.height + 5 } + 10f, rubyHeight,
                 ruby?.emPx ?: ((main.getLineBottom(0) - main.getLineTop(0)) / 1.24f),
-                if (line.duet) (width - rowWidth).toFloat() else 0f, ruby?.runs.orEmpty())
+                if (line.duet) (width - rowWidth).toFloat() else 0f, ruby?.runs.orEmpty(), upper)
         }
         val h = layouts.sumOf { it.height.toDouble() }.toFloat() + fontSize * .65f
         GroupLayout(layouts, top, h).also { top += h }

@@ -15,12 +15,14 @@ internal class LyricLinePainter(private val measurer: TextMeasurer) : AutoClosea
         if (level > 0) ImageFilter.makeBlur(level * .6f, level * .6f, FilterTileMode.DECAL).use { imageFilter = it }
     } }
     private val words = WordHighlightPainter()
+    private val ruby = LyricRubyPainter()
 
     fun DrawScope.paintLine(layout: LineLayout, positionMs: Long, active: Boolean, distance: Int, manual: Boolean, options: RenderOptions, highlight: Float = if (active) 1f else 0f, color: Color = Color.White) {
         val native = drawContext.canvas.skiaCanvas
         val blur = if (active || manual || !options.blur || options.reducedMotion) 0 else distance.coerceIn(0, 4)
         if (blur > 0) native.saveLayer(layout.layerBounds, blurPaints[blur])
         try {
+            layout.upperRomanization?.let { with(ruby) { paintUpper(it, layout.emPx, highlight, color) } }
             translate(top = layout.rubyHeight) {
                 if (!layout.line.hasWordTiming || highlight <= .001f) {
                     drawText(layout.main, color = color, alpha = .2f + .8f * highlight)
@@ -29,7 +31,7 @@ internal class LyricLinePainter(private val measurer: TextMeasurer) : AutoClosea
                         with(words) { paint(layout, region, positionMs, highlight, options, color) }
                     }
                 }
-                if (options.romanization) paintRuby(layout, positionMs, highlight, options, color)
+                if (options.romanization) with(ruby) { paintRuby(layout, positionMs, highlight, options, color) }
                 var auxiliaryY = layout.main.size.height + 6f
                 for (text in layout.auxiliary) {
                     drawText(text, color = color.copy(alpha = .3f + .35f * highlight), topLeft = Offset(0f, auxiliaryY))
@@ -39,11 +41,12 @@ internal class LyricLinePainter(private val measurer: TextMeasurer) : AutoClosea
         } finally { if (blur > 0) native.restore() }
     }
 
-    fun clearTextCache() { words.clearTextCache() }
+    fun clearTextCache() { words.clearTextCache(); ruby.clear() }
     override fun close() {
         if (closed) return
         closed = true
         words.close()
+        ruby.close()
         blurPaints.forEach { it.close() }
     }
 }

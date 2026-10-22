@@ -22,6 +22,7 @@ data class LyricLine(
     val section: String = "",
     val romanizationSyllables: List<LyricSyllable> = emptyList(),
     val annotations: List<LyricAnnotation> = emptyList(),
+    val romanizationAbove: Boolean = false,
 ) {
     val text: String get() = words.joinToString("") { it.text }
     val hasWordTiming: Boolean get() = words.any { it.timed }
