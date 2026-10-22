@@ -23,10 +23,11 @@ internal object KanaRomanizer {
         if (it in '\u30a1'..'\u30f6') (it.code - 0x60).toChar() else it
     }.joinToString("")
 
-    fun convert(text: String): String? = units(text)?.joinToString("") { it.second }
+    fun convert(text: String, following: String = ""): String? = units(text, following)?.joinToString("") { it.second }
 
-    fun units(text: String): List<Pair<IntRange, String>>? {
+    fun units(text: String, following: String = ""): List<Pair<IntRange, String>>? {
         val kana = hiragana(text)
+        val context = kana + hiragana(following)
         val result = mutableListOf<Pair<IntRange, String>>()
         var i = 0
         while (i < kana.length) {
@@ -34,12 +35,12 @@ internal object KanaRomanizer {
             var end = i + 1
             val roman = when (kana[i]) {
                 'っ' -> {
-                    val next = syllable(kana, i + 1)?.first ?: return null
+                    val next = syllable(context, i + 1)?.first ?: return null
                     if (next.first() in "aeioun") return null
                     if (next.startsWith("ch")) "t" else next.take(1)
                 }
                 'ー' -> result.lastOrNull()?.second?.lastOrNull { it in "aeiou" }?.toString() ?: return null
-                'ん' -> if (syllable(kana, i + 1)?.first?.firstOrNull()?.let { it in "aeiouy" } == true) "n'" else "n"
+                'ん' -> if (syllable(context, i + 1)?.first?.firstOrNull()?.let { it in "aeiouy" } == true) "n'" else "n"
                 else -> {
                     val part = syllable(kana, i) ?: return null
                     end = i + part.second

@@ -10,12 +10,18 @@ internal class JapaneseReadings {
 
     fun analyze(text: String): List<JapaneseReading> = buildList {
         var consumed = 0
-        for (token in tokenizer.tokenize(text)) {
+        val tokens = tokenizer.tokenize(text)
+        for ((tokenIndex, token) in tokens.withIndex()) {
             val surface = token.surface
             val start = token.position
             if (start < consumed) continue
             if (start < 0 || start + surface.length > text.length ||
                 text.substring(start, start + surface.length) != surface) continue
+            // A stem can end in a small tsu (e.g. 光っ + て). Read only the adjacent token;
+            // punctuation, spaces and line breaks must not become pronunciation context.
+            val following = tokens.getOrNull(tokenIndex + 1)?.takeIf {
+                it.position == start + surface.length
+            }?.let { it.reading.takeUnless { reading -> reading == "*" } ?: it.surface }.orEmpty()
             // IPADIC can split these irregular person counters into numeral + suffix.
             val person = when {
                 text.startsWith("一人", start) -> "hitori"
@@ -33,12 +39,12 @@ internal class JapaneseReadings {
                     "は" -> "wa"; "へ" -> "e"; "を" -> "o"; else -> null
                 } else null
                 if (particle != null) add(JapaneseReading(start, start + surface.length, particle))
-                else KanaRomanizer.units(surface)?.forEach { (range, roman) ->
+                else KanaRomanizer.units(surface, following)?.forEach { (range, roman) ->
                     add(JapaneseReading(start + range.first, start + range.last + 1, roman))
                 }
             } else if (surface.codePoints().anyMatch(Character::isIdeographic)) {
                 val reading = token.reading.takeUnless { it == "*" }.orEmpty()
-                addAll(kanjiSpans(start, surface, reading))
+                addAll(kanjiSpans(start, surface, reading, following))
             } else if (surface.any { it.isLetterOrDigit() }) {
                 add(JapaneseReading(start, start + surface.length, surface, annotate = false))
             }
@@ -46,8 +52,8 @@ internal class JapaneseReadings {
     }
 
     /** Kana anchors can separate okurigana; ambiguous kanji compounds stay whole. */
-    private fun kanjiSpans(start: Int, surface: String, reading: String): List<JapaneseReading> {
-        val whole = listOf(JapaneseReading(start, start + surface.length, KanaRomanizer.convert(reading).orEmpty()))
+    private fun kanjiSpans(start: Int, surface: String, reading: String, following: String): List<JapaneseReading> {
+        val whole = listOf(JapaneseReading(start, start + surface.length, KanaRomanizer.convert(reading, following).orEmpty()))
         val kana = KanaRomanizer.hiragana(reading)
         val parts = Regex("\\p{IsHan}+|[\\u3041-\\u3096\\u30a1-\\u30faー]+").findAll(surface).toList()
         if (parts.joinToString("") { it.value } != surface) return whole
@@ -59,13 +65,14 @@ internal class JapaneseReadings {
                 val end = if (next == null) kana.length else kana.indexOf(next, cursor).also {
                     if (it < 0 || kana.indexOf(next, it + 1) >= 0) return whole
                 }
-                val roman = KanaRomanizer.convert(kana.substring(cursor, end))?.takeIf(String::isNotEmpty) ?: return whole
+                val roman = KanaRomanizer.convert(kana.substring(cursor, end), kana.substring(end) + following)
+                    ?.takeIf(String::isNotEmpty) ?: return whole
                 result += JapaneseReading(start + part.range.first, start + part.range.last + 1, roman)
                 cursor = end
             } else {
                 val normalized = KanaRomanizer.hiragana(part.value)
                 if (!kana.startsWith(normalized, cursor)) return whole
-                val units = KanaRomanizer.units(part.value) ?: return whole
+                val units = KanaRomanizer.units(part.value, kana.substring(cursor + normalized.length) + following) ?: return whole
                 for ((range, roman) in units) result += JapaneseReading(start + part.range.first + range.first,
                     start + part.range.first + range.last + 1, roman)
                 cursor += normalized.length
