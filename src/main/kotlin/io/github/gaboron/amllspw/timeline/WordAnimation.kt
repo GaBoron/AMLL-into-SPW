@@ -13,6 +13,14 @@ internal object WordAnimation {
     private val emphasizeIn = CubicBezier(.2f, .4f, .58f, 1f)
     private val emphasizeOut = CubicBezier(.3f, 0f, .58f, 1f)
 
+    fun progress(word: LyricWord, timeMs: Long): Float = if (word.timed)
+        ((timeMs - word.startMs).toFloat() / (word.endMs - word.startMs).coerceAtLeast(1)).coerceIn(0f, 1f) else 1f
+
+    /** The upstream word container floats as a unit, including its romanization. */
+    fun floatLift(word: LyricWord, timeMs: Long, background: Boolean): Float = if (!word.timed) 0f else
+        .05f * (if (background) 2f else 1f) * easeOut.transform(
+            (timeMs - word.startMs).toFloat() / maxOf(1_000f, (word.endMs - word.startMs).toFloat()))
+
     fun evaluate(word: LyricWord, timeMs: Long, background: Boolean, lastWord: Boolean, character: Int = 0, characters: Int = 1): Transform {
         return Prepared(word, background, lastWord, characters).evaluate(timeMs, character)
     }
@@ -39,7 +47,7 @@ internal object WordAnimation {
         fun evaluate(timeMs: Long, character: Int): Transform {
             if (!word.timed) return Transform()
             val elapsed = (timeMs - word.startMs).toFloat()
-            val baseLift = .05f * multiplier * easeOut.transform(elapsed / maxOf(1_000f, duration))
+            val baseLift = floatLift(word, timeMs, multiplier > 1f)
             if (!emphasize) return Transform(liftEm = baseLift)
             val delayed = elapsed - du / 2.5f / anchor * character
             val progress = (delayed / du).coerceIn(0f, 1f)

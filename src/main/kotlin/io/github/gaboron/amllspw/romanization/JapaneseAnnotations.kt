@@ -1,0 +1,49 @@
+package io.github.gaboron.amllspw.romanization
+
+import io.github.gaboron.amllspw.lyrics.*
+
+/** Load-time enrichment only. Originals, source words and all base timestamps remain intact. */
+internal class JapaneseAnnotations {
+    private val readings = JapaneseReadings()
+    private val cache = object : LinkedHashMap<LyricLine, List<LyricAnnotation>>(128, .75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<LyricLine, List<LyricAnnotation>>): Boolean = size > 128
+    }
+    private var failureReported = false
+
+    fun apply(document: LyricDocument, enabled: Boolean): LyricDocument {
+        if (!enabled) return document
+        val japanese = document.metadata.any { it.key == "language" && it.values.any { value ->
+            value.substringBefore('-').substringBefore('_').lowercase() in setOf("ja", "jpn")
+        } } || document.lines.any { line -> line.text.any(::isKana) }
+        var remaining = 32_768
+        val lines = document.lines.map { line ->
+            if (!japanese || line.text.length !in 1..512 || line.text.length > remaining ||
+                line.text.any { Character.UnicodeScript.of(it.code) == Character.UnicodeScript.HANGUL } ||
+                (!line.text.any(::isKana) && !line.text.codePoints().anyMatch(Character::isIdeographic)) ||
+                line.romanizationSyllables.isNotEmpty()) return@map line
+            val existing = line.rubyAnnotations()
+            if (line.text.indices.filter { line.text[it].isLetterOrDigit() }.all { index ->
+                existing.any { index >= it.start && index < it.end }
+            }) return@map line
+            remaining -= line.text.length
+            val generated = cache.getOrPut(line) { runCatching { annotate(line) }.getOrElse {
+                if (!failureReported) { System.err.println("AMLL: 日语注音分析失败: ${it.message}"); failureReported = true }
+                emptyList()
+            } }
+            if (generated.isEmpty()) line else line.copy(annotations = line.annotations + generated)
+        }
+        return if (lines == document.lines) document else document.copy(lines = lines)
+    }
+
+    private fun isKana(char: Char): Boolean = char in '\u3041'..'\u3096' || char in '\u30a1'..'\u30fa' || char in '\uff66'..'\uff9d'
+
+    private fun annotate(line: LyricLine): List<LyricAnnotation> {
+        val spans = readings.analyze(line.text)
+        val supplied = line.romanization.takeIf(String::isNotBlank)?.let { RomanizationAlignment.match(spans, it) ?: return emptyList() }
+        val existing = line.rubyAnnotations()
+        return spans.mapIndexedNotNull { index, span ->
+            if (!span.annotate || span.roman.isBlank() || existing.any { it.start < span.end && span.start < it.end }) null
+            else LyricAnnotation(span.start, span.end, listOf(LyricSyllable(supplied?.get(index) ?: span.roman)))
+        }
+    }
+}

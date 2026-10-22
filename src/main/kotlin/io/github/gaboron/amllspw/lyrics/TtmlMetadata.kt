@@ -33,6 +33,7 @@ internal object TtmlMetadata {
                 add(key, element.textContent.ifBlank { element.getAttribute("value") })
             } else children.forEach { visit(it, depth + 1) }
         }
+        add("language", root.getAttributeNS("http://www.w3.org/XML/1998/namespace", "lang"))
         root.elements().filter { (it.localName ?: it.tagName) == "head" }.forEach { head ->
             head.elements().filter { (it.localName ?: it.tagName) == "metadata" }.forEach { visit(it, 0) }
         }

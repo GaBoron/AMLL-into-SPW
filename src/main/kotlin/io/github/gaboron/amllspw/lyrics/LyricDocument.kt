@@ -6,6 +6,7 @@ data class LyricWord(
     val endMs: Long,
     val timed: Boolean = true,
     val ruby: String = "",
+    val rubySyllables: List<LyricSyllable> = emptyList(),
 )
 
 data class LyricLine(
@@ -19,6 +20,8 @@ data class LyricLine(
     val duet: Boolean = false,
     val group: Int = 0,
     val section: String = "",
+    val romanizationSyllables: List<LyricSyllable> = emptyList(),
+    val annotations: List<LyricAnnotation> = emptyList(),
 ) {
     val text: String get() = words.joinToString("") { it.text }
     val hasWordTiming: Boolean get() = words.any { it.timed }

@@ -82,9 +82,10 @@ class TtmlReader {
                 val bounded = if (line.endMs == MAX_TIME) line.copy(endMs = following ?: (line.startMs + 5_000)) else line
                 // Word-timed TTML can put a single sung unit directly in p (or x-bg),
                 // with its timing on that element instead of a nested span.
-                if (wordTiming && !bounded.hasWordTiming) bounded.copy(words = bounded.words.map { word ->
+                val timed = if (wordTiming && !bounded.hasWordTiming) bounded.copy(words = bounded.words.map { word ->
                     word.copy(startMs = bounded.startMs, endMs = bounded.endMs, timed = word.text.isNotBlank())
                 }) else bounded
+                TimedRomanization.attach(timed)
             }, LyricDocument.Origin.TTML, original, metadata = TtmlMetadata.read(root))
         }
 
@@ -128,9 +129,30 @@ class TtmlReader {
                 val ownSecondary = secondaryOf(element)
                 val ownTranslation = if (element === e) translation else ownSecondary.filter { it.role() in TRANSLATION }.joinToString("\n") { it.textContent }
                 val ownRomanization = if (element === e) romanization else ownSecondary.filter { it.role() in ROMANIZATION }.joinToString("\n") { it.textContent }
+                val inlineRoman = ownSecondary.filter { it.role() in ROMANIZATION }
+                val attachedRoman = if (element === e) attached.filter {
+                    (it.parentNode as? Element)?.local() == "transliteration"
+                } else attached
+                        .filter { (it.parentNode as? Element)?.local() == "transliteration" }
+                        .flatMap { descendants(it).filter { node -> node.role() == "x-bg" } }
+                val romanNodes = inlineRoman.ifEmpty { attachedRoman.take(1) }
+                val syllables = romanNodes.flatMap { roman ->
+                    val ancestor = generateSequence(roman.parentNode as? Element) { it.parentNode as? Element }
+                        .takeWhile { it !== e }.firstOrNull { it in ranges }
+                    val romanRange = range(roman, ancestor?.let { ranges[it] } ?: rr)
+                    val explicit = roman.hasAttribute("begin") || ancestor?.let {
+                        it.local() == "span" && (it.hasAttribute("begin") || it.hasAttribute("end") || it.hasAttribute("dur"))
+                    } == true
+                    words(roman, romanRange, explicit).filter { it.timed && it.text.isNotBlank() }.map {
+                        LyricSyllable(it.text, it.startMs, it.endMs, true)
+                    }
+                }
+                val romanText = if (syllables.isNotEmpty()) syllables.joinToString(" ") { it.text } else
+                    ownRomanization.ifBlank { romanNodes.joinToString("\n") { it.textContent } }
                 result += LyricLine(start, maxOf(start + 1, end), ww, ownTranslation,
-                    ownRomanization, ownAgent, background,
-                    ownAgent.isNotEmpty() && ownAgent != primaryAgent.ifBlank { "v1" }, id, section)
+                    romanText, ownAgent, background,
+                    ownAgent.isNotEmpty() && ownAgent != primaryAgent.ifBlank { "v1" }, id, section,
+                    romanizationSyllables = syllables)
             }
             line(e, r, main, e.role() == "x-bg")
             for (element in bg) {
@@ -139,9 +161,10 @@ class TtmlReader {
             }
         }
 
-        fun words(e: Element, parent: Range): List<LyricWord> {
+        fun words(e: Element, parent: Range, timedRoot: Boolean = false): List<LyricWord> {
             val out = mutableListOf<LyricWord>()
-            fun walk(node: Node, inherited: Range, timed: Boolean, ruby: String = "", depth: Int = 0) {
+            fun walk(node: Node, inherited: Range, timed: Boolean, ruby: String = "",
+                rubySyllables: List<LyricSyllable> = emptyList(), depth: Int = 0) {
                 require(depth < 64 && out.size < 50_000)
                 when (node) {
                     is Element -> {
@@ -155,6 +178,11 @@ class TtmlReader {
                         val rubyNodes = if (node.attr("ruby") == "container") descendants(node).filter { it.attr("ruby") == "text" } else emptyList()
                         val annotation = if (rubyNodes.isNotEmpty()) rubyNodes.joinToString("") { it.textContent } else ruby
                         val rubyTimes = rubyNodes.filter { it.hasAttribute("begin") }.map { range(it, r) }
+                        val annotations = if (rubyNodes.isEmpty()) rubySyllables else rubyNodes.map { rubyNode ->
+                            val timing = ranges[rubyNode] ?: range(rubyNode, r)
+                            LyricSyllable(rubyNode.textContent, timing.start, timing.end,
+                                rubyNode.hasAttribute("begin") && (rubyNode.hasAttribute("end") || rubyNode.hasAttribute("dur")))
+                        }
                         if (!explicit && rubyTimes.isNotEmpty()) {
                             r = Range(rubyTimes.minOf { it.start }, rubyTimes.maxOf { it.end })
                             explicit = true
@@ -166,18 +194,18 @@ class TtmlReader {
                             for (i in 0 until children.length) {
                                 val childRange = if (node.attr("timeContainer") == "seq") Range(next, r.end) else r
                                 val child = children.item(i)
-                                walk(child, childRange, explicit, annotation, depth + 1)
+                                walk(child, childRange, explicit, annotation, annotations, depth + 1)
                                 if (child is Element) next = ranges[child]?.end?.takeUnless { it == MAX_TIME } ?: next
                             }
                         }
                     }
                     else -> if (node.nodeType == Node.TEXT_NODE || node.nodeType == Node.CDATA_SECTION_NODE) {
                         val text = node.nodeValue.orEmpty()
-                        if (text.isNotEmpty()) out += LyricWord(text, inherited.start, inherited.end, timed, ruby)
+                        if (text.isNotEmpty()) out += LyricWord(text, inherited.start, inherited.end, timed, ruby, rubySyllables)
                     }
                 }
             }
-            walk(e, parent, false)
+            walk(e, parent, timedRoot)
             return out.map { if (it.endMs == MAX_TIME) it.copy(endMs = parent.end) else it }
         }
     }

@@ -23,7 +23,7 @@ internal class WordHighlightPainter : AutoCloseable {
     fun DrawScope.paint(layout: LineLayout, region: WordRegion, timeMs: Long, highlight: Float, options: RenderOptions, color: Color = Color.White) {
         updateTint(color.toArgb())
         val word = region.word
-        val progress = if (word.timed) ((timeMs - word.startMs).toFloat() / (word.endMs - word.startMs).coerceAtLeast(1)).coerceIn(0f, 1f) else 1f
+        val progress = WordAnimation.progress(word, timeMs)
         val texture = atlas.get(layout, this)
         for (glyph in region.glyphs) {
             val rect = glyph.bounds

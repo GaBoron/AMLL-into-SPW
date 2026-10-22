@@ -22,6 +22,7 @@
       { "type": "switch", "key": "spring", "title": "弹簧滚动与错落动画", "default_value": true },
       { "type": "switch", "key": "hide_passed", "title": "隐藏已唱过的歌词", "default_value": false },
       { "type": "switch", "key": "romanization", "title": "显示音译与注音", "default_value": true },
+      { "type": "switch", "key": "automatic_japanese_ruby", "title": "自动生成逐字罗马注音（实验性）", "default_value": false, "summary": "仅处理日语：优先保留已有逐字音译，其次匹配整行音译，否则使用本地词典生成。关闭时不执行自动分析；不改写歌词文件。" },
       { "type": "switch", "key": "reduced_motion", "title": "减少动态效果", "default_value": false, "summary": "关闭模糊、发光、缩放与弹簧动画，保留准确的逐字高亮。" }
     ]
   }]

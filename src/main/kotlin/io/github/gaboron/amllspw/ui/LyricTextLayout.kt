@@ -29,6 +29,7 @@ internal data class LineLayout(
     val rubyHeight: Float,
     val emPx: Float,
     val inset: Float = 0f,
+    val rubyRuns: List<RubyRun> = emptyList(),
 ) {
     // Include word float/glow and secondary text, while avoiding a viewport-sized layer per row.
     val layerBounds = org.jetbrains.skia.Rect.makeLTRB(-emPx * 1.5f, -emPx * 1.5f,
@@ -44,14 +45,16 @@ internal fun layoutLyrics(document: LyricDocument, measurer: TextMeasurer, width
     return document.lines.groupBy { it.group }.values.sortedBy { rows -> rows.minOf { it.startMs } }.map { rows ->
         val layouts = rows.sortedBy { it.background }.map { line ->
             val size = fontSize * if (line.background) .7f else 1f
-            val hasRuby = romanization && line.words.any { it.ruby.isNotEmpty() }
+            val annotations = if (romanization) line.rubyAnnotations() else emptyList()
             val style = typography.textStyle(size).copy(lineHeight = (size * 1.24f).sp,
                 textAlign = if (line.duet) TextAlign.Right else TextAlign.Left)
             val text = line.text
-            val wrapped = wrapLyricLine(line, rowWidth, style, measurer)
+            val ruby = if (annotations.isEmpty()) null else layoutRubyLine(line, annotations, rowWidth, style, measurer)
+            val wrapped = if (ruby == null) wrapLyricLine(line, rowWidth, style, measurer) else
+                WrappedLyricText(ruby.main.layoutInput.text.text, ruby.offsets)
             val constraints = Constraints(minWidth = rowWidth, maxWidth = rowWidth)
-            val main = measurer.measure(AnnotatedString(wrapped.text), style, constraints = constraints)
-            val rubyHeight = if (hasRuby) (main.getLineBottom(0) - main.getLineTop(0)) * .48f else 0f
+            val main = ruby?.main ?: measurer.measure(AnnotatedString(wrapped.text), style, constraints = constraints)
+            val rubyHeight = 0f
             var offset = 0
             val regions = line.words.mapIndexed { wordIndex, word ->
                 val byRow = linkedMapOf<Int, Rect>()
@@ -82,11 +85,14 @@ internal fun layoutLyrics(document: LyricDocument, measurer: TextMeasurer, width
                 WordRegion(word, byRow.values.toList(), rtl, glyphs, character,
                     WordAnimation.Prepared(word, line.background, wordIndex == line.words.lastIndex, character))
             }
-            val secondary = if (showSecondary) listOf(line.translation, line.romanization.takeIf { romanization }.orEmpty()).filter(String::isNotBlank).map {
+            val romanLine = line.romanization.takeIf { romanization && (line.annotations.isEmpty() ||
+                line.romanizationSyllables.any { syllable -> line.annotations.none { syllable in it.syllables } }) }.orEmpty()
+            val secondary = if (showSecondary) listOf(line.translation, romanLine).filter(String::isNotBlank).map {
                 measurer.measure(AnnotatedString(it), style.copy(fontSize = (size * .48f).sp, lineHeight = (size * .68f).sp), constraints = constraints)
             } else emptyList()
             LineLayout(line, main, regions, secondary, main.size.height + rubyHeight + secondary.sumOf { it.size.height + 5 } + 10f, rubyHeight,
-                (main.getLineBottom(0) - main.getLineTop(0)) / 1.24f, if (line.duet) (width - rowWidth).toFloat() else 0f)
+                ruby?.emPx ?: ((main.getLineBottom(0) - main.getLineTop(0)) / 1.24f),
+                if (line.duet) (width - rowWidth).toFloat() else 0f, ruby?.runs.orEmpty())
         }
         val h = layouts.sumOf { it.height.toDouble() }.toFloat() + fontSize * .65f
         GroupLayout(layouts, top, h).also { top += h }

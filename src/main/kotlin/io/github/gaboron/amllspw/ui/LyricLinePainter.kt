@@ -29,13 +29,7 @@ internal class LyricLinePainter(private val measurer: TextMeasurer) : AutoClosea
                         with(words) { paint(layout, region, positionMs, highlight, options, color) }
                     }
                 }
-                for (region in layout.words.filter { it.word.ruby.isNotEmpty() && options.romanization }) {
-                    val rect = region.rects.firstOrNull() ?: continue
-                    val style = layout.main.layoutInput.style
-                    val ruby = measurer.measure(AnnotatedString(region.word.ruby), options.typography.textStyle(style.fontSize.value * .38f))
-                    drawText(ruby, color = color.copy(alpha = if (active) .9f else .4f),
-                        topLeft = Offset(rect.center.x - ruby.size.width / 2, rect.top - ruby.size.height))
-                }
+                if (options.romanization) paintRuby(layout, positionMs, highlight, options, color)
                 var auxiliaryY = layout.main.size.height + 6f
                 for (text in layout.auxiliary) {
                     drawText(text, color = color.copy(alpha = .3f + .35f * highlight), topLeft = Offset(0f, auxiliaryY))

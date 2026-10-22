@@ -8,6 +8,7 @@ internal data class RenderOptions(
     val background: Boolean = false,
     val hidePassed: Boolean = false,
     val romanization: Boolean = true,
+    val automaticJapaneseRuby: Boolean = false,
     val reducedMotion: Boolean = false,
     val coloredLyrics: Boolean = false,
     val typography: LyricTypography = LyricTypography(),

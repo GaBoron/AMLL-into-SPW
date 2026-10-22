@@ -11,6 +11,7 @@ import io.github.gaboron.amllspw.interop.FooterInbox
 import io.github.gaboron.amllspw.ui.LyricsPresentation
 import io.github.gaboron.amllspw.poetry.PoetryCatalog
 import io.github.gaboron.amllspw.poetry.TrackPoems
+import io.github.gaboron.amllspw.romanization.JapaneseAnnotations
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.nio.file.Path
@@ -25,6 +26,7 @@ internal class AmllRuntime : AutoCloseable {
     val presentation = mutablePresentation.asStateFlow()
     val clock = PlaybackClock()
     private val local = LocalLyricsReader()
+    private val annotations = JapaneseAnnotations()
     private val inbox = TtmlInbox()
     private val footerInbox = FooterInbox(::currentIdentity)
     private val poems by lazy { TrackPoems(PoetryCatalog.load()) }
@@ -38,6 +40,7 @@ internal class AmllRuntime : AutoCloseable {
     private var initialized = false
 
     fun start() {
+        preferences.onAnnotationChange = ::lyricsChanged
         // Some lyric-provider plugins short-circuit the before-load extension chain.
         // Poll track identity in the background so raw TTML still takes precedence in that case.
         worker.scheduleWithFixedDelay({
@@ -136,9 +139,11 @@ internal class AmllRuntime : AutoCloseable {
             clear(); return
         }
         val received = inbox.current(TrackIdentity(media.id, media.path))
-        val document = localDocument ?: received?.document ?: HostLyricsAdapter.convert(WorkshopApi.playback.getLyricsLines())
+        val original = localDocument ?: received?.document ?: HostLyricsAdapter.convert(WorkshopApi.playback.getLyricsLines())
+        val options = preferences.options.value
+        val document = annotations.apply(original, options.automaticJapaneseRuby && options.romanization)
         val offset = if (localDocument != null) 0 else received?.offsetMs ?: 0
-        if (!closed) {
+        if (!closed && currentIdentity()?.matches(TrackIdentity(media.id, media.path)) == true) {
             val next = mutablePresentation.value.copy(document = document, offsetMs = offset,
                 footer = footerInbox.current(TrackIdentity(media.id, media.path)),
                 loading = document.lines.isEmpty() && mutablePresentation.value.loading && !hostUpdated)

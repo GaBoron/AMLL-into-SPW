@@ -24,6 +24,7 @@ dependencies {
     compileOnly(compose.desktop.currentOs)
     implementation("net.jthink:jaudiotagger:3.0.1")
     implementation("org.ow2.asm:asm:9.10.1")
+    implementation("com.atilika.kuromoji:kuromoji-ipadic:0.9.0")
     dependencySources("net.jthink:jaudiotagger:3.0.1:sources")
 }
 

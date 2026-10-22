@@ -22,8 +22,11 @@
 | --- | --- | --- |
 | [Jaudiotagger](https://bitbucket.org/ijabz/jaudiotagger) | LGPL-2.1-or-later | 只读提取音频内嵌歌词 |
 | [ASM](https://asm.ow2.io/) | BSD-3-Clause | 读取宿主字节码、确认歌词调用位置 |
+| [Kuromoji IPADIC 0.9.0](https://github.com/atilika/kuromoji) | Apache-2.0；词典另含 NAIST / ICOT 条款 | 本地日语分词与读音分析 |
 
 许可证随包置于 `licenses/`，Jaudiotagger 对应源码及本项目源码随包置于 `source/`。Jaudiotagger 为未修改的独立 JAR，可替换兼容版本。
+
+Kuromoji 及其未修改的 IPADIC 词典随包提供；Apache-2.0 许可证见 `licenses/Apache-2.0.txt`，版权及词典声明见 `licenses/Kuromoji-IPADIC-NOTICE.txt`。`LyricRubyLayout.kt` 的注音居中、半号字体及独立占宽设计参考 AMLL core 的 [歌词行](https://github.com/amll-dev/applemusic-like-lyrics/blob/5fee356362353dbb24ce9bea3a62536478040de7/packages/core/src/lyric-player/dom/lyric-line.ts)和[样式](https://github.com/amll-dev/applemusic-like-lyrics/blob/5fee356362353dbb24ce9bea3a62536478040de7/packages/core/src/styles/lyric-player.module.css)（AGPL-3.0-only）；`AnnotationMotion.kt` 和 `LyricRubyPainter.kt` 参考其整词容器的[上浮](https://github.com/amll-dev/applemusic-like-lyrics/blob/5fee356362353dbb24ce9bea3a62536478040de7/packages/core/src/lyric-player/dom/animation/float/index.ts)及[渐变遮罩](https://github.com/amll-dev/applemusic-like-lyrics/blob/5fee356362353dbb24ce9bea3a62536478040de7/packages/core/src/lyric-player/dom/animation/mask/animator-web.ts)，注音共用原词播放进度，逐字符强调保留在正文。上述实现于 2026-10-22 适配为 Compose 原生测量和绘制，保留原始音译时间，不嵌入网页运行时。
 
 SPW Workshop API、Kotlin、Compose、Skia 和 Skiko 由宿主提供，不随插件重复打包。Gradle Wrapper 使用 Apache-2.0 许可证。
 
