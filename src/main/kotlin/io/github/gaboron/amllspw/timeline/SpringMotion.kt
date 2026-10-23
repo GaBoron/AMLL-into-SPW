@@ -6,6 +6,15 @@ internal class SpringMotion(var value: Float = 0f, private var stiffness: Float 
     var velocity = 0f; private set
     fun configure(stiffness: Float, damping: Float) { this.stiffness = stiffness; this.damping = damping }
     fun snap(target: Float) { value = target; velocity = 0f }
+    /** Keep spring acceleration while braking a retargeted or overshooting scroll. */
+    fun updateBounded(target: Float, deltaSeconds: Float): Float {
+        if (deltaSeconds <= 0f) return value
+        val distance = target - value
+        if (distance * velocity < 0f) velocity = 0f
+        update(target, deltaSeconds)
+        if (distance * (target - value) <= 0f) snap(target)
+        return value
+    }
     /** A monotonic, frame-rate-independent follower for rapid changes; never jumps to its target. */
     fun follow(target: Float, deltaSeconds: Float, responseSeconds: Float): Float {
         val dt = deltaSeconds.coerceIn(0f, .064f)

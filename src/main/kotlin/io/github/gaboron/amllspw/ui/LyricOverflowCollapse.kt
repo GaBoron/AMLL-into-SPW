@@ -5,8 +5,8 @@ import io.github.gaboron.amllspw.timeline.ActivationEnvelope
 /** Free space between retained voices one completed paragraph at a time. */
 internal class LyricOverflowCollapse {
     class Row {
-        private val fade = ActivationEnvelope(1f, .2f, .2f)
-        private val space = ActivationEnvelope(1f, .25f, .25f)
+        private val fade = ActivationEnvelope(1f, .06f, .06f)
+        private val space = ActivationEnvelope(1f, .08f, .08f)
         var hidden = false
         val opacity: Float get() = fade.value
         val expansion: Float get() = space.value
@@ -14,8 +14,9 @@ internal class LyricOverflowCollapse {
 
         fun update(dt: Float, immediate: Boolean) {
             fade.update(!hidden, dt, immediate)
-            // Finish fading before closing the slot, so moving rows do not cross visible text.
-            space.update(!hidden || opacity > .001f, dt, immediate)
+            // Keep its full slot until the completed text has faded, so the next row
+            // cannot pass through it while opening space for retained voices.
+            space.update(!hidden || fade.value > .001f, dt, immediate)
         }
     }
 
@@ -63,7 +64,7 @@ internal class LyricOverflowCollapse {
         if (candidate != null && cooldown == 0f && rows.none { it.collapsing }) {
             rows[candidate].hidden = true
             // Keep the sequence paced even when the user disables animation.
-            cooldown = .45f
+            cooldown = .16f
         }
         rows.forEach { it.update(step, immediate) }
         latestOnly = enabled && viewportHeight > 0f && span != null && required > available

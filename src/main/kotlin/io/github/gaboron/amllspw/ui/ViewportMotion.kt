@@ -21,14 +21,14 @@ internal class ViewportMotion {
     var interludeY: Float? = null; private set
     val footer = LyricFooterMotion()
     private var rows = emptyList<RowMotion>()
-    private var fallback = LyricMotionFallback(longArrayOf())
+    private var exitCohort = LyricExitCohort(emptyList())
     private var focus = -1
     private var focusStamp = 0L
     private var manualUntil = 0L
     private var manualOffset = 0f
     private var currentOffset = 0f
     private var lastNow = System.nanoTime()
-    private var stiffness = 170f
+    private var stiffness = 420f
     private var seekUntil = 0L
     private val seekFollow = LyricSeekFollow()
     private val overflow = LyricOverflowCollapse()
@@ -65,33 +65,36 @@ internal class ViewportMotion {
         val first = rows.size != groups.size
         if (first) {
             rows = groups.map { RowMotion(SpringMotion(it.top), it.rows.map { VoiceMotion() }) }
-            fallback = LyricMotionFallback(groups.map { group -> group.rows.minOf { it.line.startMs } }.toLongArray())
+            exitCohort = LyricExitCohort(groups)
         }
         val active = groups.map { group -> timeMs >= group.rows.minOf { it.line.startMs } && timeMs < group.rows.maxOf { it.line.endMs } }
         rows.forEachIndexed { index, row ->
             row.expanded = active[index] || manual || playing == false
             val slide = if (row.expanded) 0f else -80f
-            if (first || seek || immediate) row.backgroundSlide.snap(slide) else row.backgroundSlide.update(slide, dt)
+            row.backgroundSlide.configure(225f, 30f)
+            if (first || seek || immediate) row.backgroundSlide.snap(slide) else row.backgroundSlide.updateBounded(slide, dt)
         }
         val backgroundExpansion = rows.map { 1f + it.backgroundSlide.value / 80f }
+        val timelineFocus = activeGroup.coerceIn(groups.indices)
+        val cohortFocus = if (!manual && !seek && playing != false && interludeBefore == null)
+            exitCohort.focus(timelineFocus, timeMs, playbackRate) else timelineFocus
         overflow.prepare(groups.size, seek)
         val previousGeometry = LyricGeometry(groups, backgroundExpansion, interludeBefore, slotHeight, footerHeight, overflow.expansion)
         overflow.update(groups, previousGeometry, timeMs, height, dt,
             !manual && playing != false && interludeBefore == null, immediate,
-            focus = activeGroup.takeIf { interludeBefore == null })
+            focus = cohortFocus.takeIf { interludeBefore == null })
         val geometry = LyricGeometry(groups, backgroundExpansion, interludeBefore, slotHeight, footerHeight, overflow.expansion)
         val followGeometry = LyricGeometry(groups, backgroundExpansion, interludeBefore, slotHeight, footerHeight, overflow.plannedExpansion)
         val focusIndex = (if (overflow.latestOnly) groups.indexOfLast { group -> group.rows.any { it.line.startMs <= timeMs } }
-            else activeGroup).coerceIn(groups.indices)
+            else cohortFocus).coerceIn(groups.indices)
         // Like upstream, manual browsing freezes the previous footer focus. The bottom is a
         // separate target, never a synthetic timed lyric or a focus inferred from the last row.
         val footerFocused = footerHeight > 0 && (if (manual) footer.focused else endOfLyrics)
         val motionFocus = if (footerFocused) groups.size else focusIndex
-        val focusJump = if (focus >= 0) abs(motionFocus - focus) else 0
         if (seek) seekUntil = now + 650_000_000
         if (motionFocus != focus) {
             val interval = if (focus in groups.indices) abs(groups[focusIndex].rows.first().line.startMs - groups[focus].rows.first().line.startMs) else 800L
-            stiffness = 170f + 50f * (1f - ((interval - 100f) / 700f).coerceIn(0f, 1f)).pow(.2f)
+            stiffness = 420f + 80f * (1f - ((interval - 100f) / 700f).coerceIn(0f, 1f)).pow(.2f)
             focus = motionFocus; focusStamp = now
         }
         val focal = if (footerFocused) followGeometry.footerTop + footerHeight * .5f else
@@ -106,34 +109,33 @@ internal class ViewportMotion {
             else geometry.tops[focusIndex] - followGeometry.tops[focusIndex]
         val offset = if (manual) manualOffset.coerceIn(-height * .65f, maxOffset) else followOffset + layoutShift
         val seeking = now < seekUntil
-        val bulkPositions = scrollSpring.update(geometry.tops, rows.map { it.y }, focusIndex, focusJump,
-            offset, currentOffset, height, dt, !first && !immediate && !manual && !footerFocused,
-            if (seeking) 90f else stiffness, if (seeking) 15f else sqrt(stiffness) * 2.2f)
+        val minimumY = FloatArray(groups.size) { index ->
+            if (active[index] && index < focusIndex && !overflow.latestOnly && !seeking && !manual)
+                (followGeometry.tops[index] - followOffset).takeIf { it >= 0f } ?: Float.NEGATIVE_INFINITY
+            else Float.NEGATIVE_INFINITY
+        }
+        val scrollStiffness = (stiffness * playbackRate.coerceIn(1f, 8f).pow(2)).coerceAtMost(4_096f)
+        val bulkPositions = scrollSpring.update(geometry.tops, geometry.heights, rows.map { it.y }, focusIndex,
+            offset, dt, !first && !immediate && !manual && !footerFocused, scrollStiffness, minimumY)
         currentOffset = offset
-        val lag = if (first || now < seekUntil) 0f else abs(rows[focusIndex].y.value - (geometry.tops[focusIndex] - offset))
-        val response = fallback.responseSeconds(focusIndex, playbackRate, lag, height,
-            bulkPositions == null && !immediate && !manual && !footerFocused && now >= seekUntil && playing != false && interludeBefore == null, dt)
-        val transitionDt = if (response == null) dt else dt * maxOf(1f, .3f / (response * 2.5f))
         rows.forEachIndexed { index, row ->
             row.overflowOpacity = overflow.rows[index].opacity
             val target = geometry.tops[index] - offset
             val stagger = (abs(index - motionFocus) * 45L).coerceAtMost(270) * 1_000_000
-            row.y.configure(if (seeking) 90f else stiffness, if (seeking) 15f else sqrt(stiffness) * 2.2f)
+            row.y.configure(stiffness, sqrt(stiffness) * 2f)
             if (bulkPositions != null) row.y.snap(bulkPositions[index])
             else if (first || immediate) row.y.snap(target)
-            else if (response != null) row.y.follow(target, dt, response)
-            else if (seeking || active[index] || now - focusStamp >= stagger || manual) row.y.update(target, dt)
+            else if (seeking || active[index] || now - focusStamp >= stagger || manual) row.y.updateBounded(target, dt)
             val scale = if (active[index]) 1f else .97f
             if (first || seek || immediate) row.scale.snap(scale)
-            else if (response != null) row.scale.follow(scale, dt, response) else row.scale.update(scale, dt)
+            else row.scale.update(scale, dt)
             row.voices.forEachIndexed { voiceIndex, voice ->
                 val line = groups[index].rows[voiceIndex].line
                 val voiceScale = if (line.background && !active[index]) .75f else 1f
                 val opacity = if (!line.background) 1f else if (row.expanded) .4f else 0f
-                voice.highlight.update(active[index], transitionDt, first || seek || immediate)
-                voice.visibility.update(!hidePassed || timeMs < groups[index].rows.maxOf { it.line.endMs }, transitionDt, first || seek || immediate)
+                voice.highlight.update(active[index], dt, first || seek || immediate)
+                voice.visibility.update(!hidePassed || timeMs < groups[index].rows.maxOf { it.line.endMs }, dt, first || seek || immediate)
                 if (first || seek || immediate) { voice.scale.snap(voiceScale); voice.opacity.snap(opacity) }
-                else if (response != null) { voice.scale.follow(voiceScale, dt, response); voice.opacity.follow(opacity, dt, response) }
                 else { voice.scale.update(voiceScale, dt); voice.opacity.update(opacity, dt) }
             }
         }
