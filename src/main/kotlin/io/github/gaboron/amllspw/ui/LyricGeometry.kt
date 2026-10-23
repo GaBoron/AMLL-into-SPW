@@ -1,7 +1,7 @@
 package io.github.gaboron.amllspw.ui
 
-/** Prefix sums use only expanded voices; an interlude is a real slot before the next group. */
-internal class LyricGeometry(groups: List<GroupLayout>, expanded: List<Boolean>, interludeBefore: Int?, slotHeight: Float,
+/** Background slots follow their reveal animation; interludes reserve a real slot. */
+internal class LyricGeometry(groups: List<GroupLayout>, backgroundExpansion: List<Float>, interludeBefore: Int?, slotHeight: Float,
     footerHeight: Float = 0f) {
     val tops = FloatArray(groups.size)
     val heights = FloatArray(groups.size)
@@ -16,7 +16,7 @@ internal class LyricGeometry(groups: List<GroupLayout>, expanded: List<Boolean>,
             tops[index] = top
             val background = group.rows.filter { it.line.background }.sumOf { it.height.toDouble() }.toFloat()
             mainHeights[index] = group.height - background
-            heights[index] = mainHeights[index] + if (expanded[index]) background else 0f
+            heights[index] = mainHeights[index] + background * backgroundExpansion[index].coerceIn(0f, 1f)
             top += heights[index]
         }
         footerTop = top

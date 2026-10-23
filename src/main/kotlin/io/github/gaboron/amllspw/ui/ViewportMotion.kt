@@ -66,8 +66,12 @@ internal class ViewportMotion {
             fallback = LyricMotionFallback(groups.map { group -> group.rows.minOf { it.line.startMs } }.toLongArray())
         }
         val active = groups.map { group -> timeMs >= group.rows.minOf { it.line.startMs } && timeMs < group.rows.maxOf { it.line.endMs } }
-        rows.forEachIndexed { index, row -> row.expanded = active[index] || manual || playing == false }
-        val geometry = LyricGeometry(groups, rows.map { it.expanded }, interludeBefore, slotHeight, footerHeight)
+        rows.forEachIndexed { index, row ->
+            row.expanded = active[index] || manual || playing == false
+            val slide = if (row.expanded) 0f else -80f
+            if (first || seek || immediate) row.backgroundSlide.snap(slide) else row.backgroundSlide.update(slide, dt)
+        }
+        val geometry = LyricGeometry(groups, rows.map { 1f + it.backgroundSlide.value / 80f }, interludeBefore, slotHeight, footerHeight)
         val focusIndex = activeGroup.coerceIn(groups.indices)
         // Like upstream, manual browsing freezes the previous footer focus. The bottom is a
         // separate target, never a synthetic timed lyric or a focus inferred from the last row.
@@ -83,7 +87,8 @@ internal class ViewportMotion {
             geometry.interludeTop?.let { it + slotHeight / 2 } ?: (geometry.tops[focusIndex] + geometry.mainHeights[focusIndex] * .35f)
         val aligned = focal - height * .35f
         val maxOffset = if (footerHeight > 0) maxOf(0f, geometry.totalHeight - height * .35f) else maxOf(0f, geometry.tops.last())
-        val offset = if (manual) manualOffset.coerceIn(-height * .65f, maxOffset) else aligned
+        val offset = if (manual) manualOffset.coerceIn(-height * .65f, maxOffset) else
+            lyricScrollAnchor(groups, geometry, timeMs, height, aligned)
         currentOffset = offset
         val lag = if (first || now < seekUntil) 0f else abs(rows[focusIndex].y.value - (geometry.tops[focusIndex] - offset))
         val response = fallback.responseSeconds(focusIndex, playbackRate, lag, height,
@@ -96,13 +101,10 @@ internal class ViewportMotion {
             row.y.configure(if (seeking) 90f else stiffness, if (seeking) 15f else sqrt(stiffness) * 2.2f)
             if (first || immediate) row.y.snap(target)
             else if (response != null) row.y.follow(target, dt, response)
-            else if (seeking || now - focusStamp >= stagger || manual) row.y.update(target, dt)
+            else if (seeking || active[index] || now - focusStamp >= stagger || manual) row.y.update(target, dt)
             val scale = if (active[index]) 1f else .97f
             if (first || seek || immediate) row.scale.snap(scale)
             else if (response != null) row.scale.follow(scale, dt, response) else row.scale.update(scale, dt)
-            val slide = if (row.expanded) 0f else -80f
-            if (first || seek || immediate) row.backgroundSlide.snap(slide)
-            else if (response != null) row.backgroundSlide.follow(slide, dt, response) else row.backgroundSlide.update(slide, dt)
             row.voices.forEachIndexed { voiceIndex, voice ->
                 val line = groups[index].rows[voiceIndex].line
                 val voiceScale = if (line.background && !active[index]) .75f else 1f

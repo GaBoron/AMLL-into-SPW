@@ -131,7 +131,7 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
             for ((voiceIndex, row) in group.rows.withIndex()) {
                 val voice = motion.voices[voiceIndex]
                 if (voice.opacity.value < .001f || voice.visibility.value < .001f) { rowY += row.height; continue }
-                val paintY = rowY + if (row.line.background) motion.backgroundSlide.value / 100 * backgroundHeight else 0f
+                val paintY = rowY + if (row.line.background) motion.backgroundSlide.value.coerceIn(-80f, 0f) / 100 * backgroundHeight else 0f
                 val bounds = Rect(margin - 10, paintY, size.width - margin + 10, paintY + row.height)
                 val hover = pointer.position?.let { bounds.contains(it) } == true
                 voice.hover.update(hover, dt)
