@@ -14,7 +14,7 @@ internal class ViewportMotion {
         val visibility: ActivationEnvelope = ActivationEnvelope(1f, .4f, .4f, CubicBezier(.25f, .1f, .25f, 1f)),
         val hover: ActivationEnvelope = ActivationEnvelope(0f, .25f, .25f, CubicBezier(.25f, .1f, .25f, 1f)))
     data class RowMotion(val y: SpringMotion, val voices: List<VoiceMotion>, val scale: SpringMotion = SpringMotion(.97f, 90f, 18f),
-        val backgroundSlide: SpringMotion = SpringMotion(-80f), var expanded: Boolean = false)
+        val backgroundSlide: SpringMotion = SpringMotion(-80f), var expanded: Boolean = false, var overflowOpacity: Float = 1f)
     data class Hit(val bounds: Rect, val positionMs: Long)
     var hits: List<Hit> = emptyList()
     var height = 0f
@@ -31,6 +31,7 @@ internal class ViewportMotion {
     private var stiffness = 170f
     private var seekUntil = 0L
     private val seekFollow = LyricSeekFollow()
+    private val overflow = LyricOverflowCollapse()
 
     fun scroll(delta: Float, now: Long = lastNow) {
         seekFollow.cancel()
@@ -71,8 +72,14 @@ internal class ViewportMotion {
             val slide = if (row.expanded) 0f else -80f
             if (first || seek || immediate) row.backgroundSlide.snap(slide) else row.backgroundSlide.update(slide, dt)
         }
-        val geometry = LyricGeometry(groups, rows.map { 1f + it.backgroundSlide.value / 80f }, interludeBefore, slotHeight, footerHeight)
-        val focusIndex = activeGroup.coerceIn(groups.indices)
+        val backgroundExpansion = rows.map { 1f + it.backgroundSlide.value / 80f }
+        overflow.prepare(groups.size, seek)
+        val previousGeometry = LyricGeometry(groups, backgroundExpansion, interludeBefore, slotHeight, footerHeight, overflow.expansion)
+        overflow.update(groups, previousGeometry, timeMs, height, dt,
+            !manual && playing != false && interludeBefore == null, immediate)
+        val geometry = LyricGeometry(groups, backgroundExpansion, interludeBefore, slotHeight, footerHeight, overflow.expansion)
+        val focusIndex = (if (overflow.latestOnly) groups.indexOfLast { group -> group.rows.any { it.line.startMs <= timeMs } }
+            else activeGroup).coerceIn(groups.indices)
         // Like upstream, manual browsing freezes the previous footer focus. The bottom is a
         // separate target, never a synthetic timed lyric or a focus inferred from the last row.
         val footerFocused = footerHeight > 0 && (if (manual) footer.focused else endOfLyrics)
@@ -87,14 +94,15 @@ internal class ViewportMotion {
             geometry.interludeTop?.let { it + slotHeight / 2 } ?: (geometry.tops[focusIndex] + geometry.mainHeights[focusIndex] * .35f)
         val aligned = focal - height * .35f
         val maxOffset = if (footerHeight > 0) maxOf(0f, geometry.totalHeight - height * .35f) else maxOf(0f, geometry.tops.last())
-        val offset = if (manual) manualOffset.coerceIn(-height * .65f, maxOffset) else
-            lyricScrollAnchor(groups, geometry, timeMs, height, aligned)
+        val offset = if (manual) manualOffset.coerceIn(-height * .65f, maxOffset) else if (overflow.latestOnly) aligned
+            else lyricScrollAnchor(groups, geometry, timeMs, height, aligned)
         currentOffset = offset
         val lag = if (first || now < seekUntil) 0f else abs(rows[focusIndex].y.value - (geometry.tops[focusIndex] - offset))
         val response = fallback.responseSeconds(focusIndex, playbackRate, lag, height,
             !immediate && !manual && !footerFocused && now >= seekUntil && playing != false && interludeBefore == null, dt)
         val transitionDt = if (response == null) dt else dt * maxOf(1f, .3f / (response * 2.5f))
         rows.forEachIndexed { index, row ->
+            row.overflowOpacity = overflow.rows[index].opacity
             val target = geometry.tops[index] - offset
             val stagger = (abs(index - motionFocus) * 45L).coerceAtMost(270) * 1_000_000
             val seeking = now < seekUntil

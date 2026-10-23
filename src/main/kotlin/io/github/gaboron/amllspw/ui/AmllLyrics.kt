@@ -130,13 +130,14 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
             val groupActive = position >= group.rows.minOf { it.line.startMs } && position < group.rows.maxOf { it.line.endMs }
             for ((voiceIndex, row) in group.rows.withIndex()) {
                 val voice = motion.voices[voiceIndex]
-                if (voice.opacity.value < .001f || voice.visibility.value < .001f) { rowY += row.height; continue }
+                val visibility = voice.visibility.value * motion.overflowOpacity
+                if (voice.opacity.value < .001f || visibility < .001f) { rowY += row.height; continue }
                 val paintY = rowY + if (row.line.background) motion.backgroundSlide.value.coerceIn(-80f, 0f) / 100 * backgroundHeight else 0f
                 val bounds = Rect(margin - 10, paintY, size.width - margin + 10, paintY + row.height)
                 val hover = pointer.position?.let { bounds.contains(it) } == true
                 voice.hover.update(hover, dt)
-                paintRowHover(bounds, voice.hover.value * voice.visibility.value, pointer.pressed, row.emPx)
-                val edgeAlpha = minOf((paintY / 45f).coerceIn(0f, 1f), ((size.height - paintY) / 70f).coerceIn(0f, 1f)) * voice.opacity.value.coerceIn(0f, 1f) * voice.visibility.value
+                paintRowHover(bounds, voice.hover.value * visibility, pointer.pressed, row.emPx)
+                val edgeAlpha = minOf((paintY / 45f).coerceIn(0f, 1f), ((size.height - paintY) / 70f).coerceIn(0f, 1f)) * voice.opacity.value.coerceIn(0f, 1f) * visibility
                 val scale = if (!options.scale || options.reducedMotion) 1f else motion.scale.value * voice.scale.value
                 withTransform({
                     translate(margin + row.inset, paintY)

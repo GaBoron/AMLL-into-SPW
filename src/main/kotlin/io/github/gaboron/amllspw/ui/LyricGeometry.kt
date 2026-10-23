@@ -2,10 +2,11 @@ package io.github.gaboron.amllspw.ui
 
 /** Background slots follow their reveal animation; interludes reserve a real slot. */
 internal class LyricGeometry(groups: List<GroupLayout>, backgroundExpansion: List<Float>, interludeBefore: Int?, slotHeight: Float,
-    footerHeight: Float = 0f) {
+    footerHeight: Float = 0f, rowExpansion: List<Float> = List(groups.size) { 1f }) {
     val tops = FloatArray(groups.size)
     val heights = FloatArray(groups.size)
     val mainHeights = FloatArray(groups.size)
+    val backgroundOffsets = FloatArray(groups.size)
     var interludeTop: Float? = null; private set
     val footerTop: Float
     val totalHeight: Float
@@ -16,7 +17,10 @@ internal class LyricGeometry(groups: List<GroupLayout>, backgroundExpansion: Lis
             tops[index] = top
             val background = group.rows.filter { it.line.background }.sumOf { it.height.toDouble() }.toFloat()
             mainHeights[index] = group.height - background
-            heights[index] = mainHeights[index] + background * backgroundExpansion[index].coerceIn(0f, 1f)
+            val revealed = backgroundExpansion[index].coerceIn(0f, 1f)
+            backgroundOffsets[index] = -.8f * background * (1f - revealed)
+            heights[index] = (mainHeights[index] + background * revealed) *
+                rowExpansion[index].coerceIn(0f, 1f)
             top += heights[index]
         }
         footerTop = top
