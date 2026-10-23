@@ -32,6 +32,7 @@ internal class ViewportMotion {
     private var seekUntil = 0L
     private val seekFollow = LyricSeekFollow()
     private val overflow = LyricOverflowCollapse()
+    private val scrollSpring = LyricScrollSpring()
 
     fun scroll(delta: Float, now: Long = lastNow) {
         seekFollow.cancel()
@@ -84,6 +85,7 @@ internal class ViewportMotion {
         // separate target, never a synthetic timed lyric or a focus inferred from the last row.
         val footerFocused = footerHeight > 0 && (if (manual) footer.focused else endOfLyrics)
         val motionFocus = if (footerFocused) groups.size else focusIndex
+        val focusJump = if (focus >= 0) abs(motionFocus - focus) else 0
         if (seek) seekUntil = now + 650_000_000
         if (motionFocus != focus) {
             val interval = if (focus in groups.indices) abs(groups[focusIndex].rows.first().line.startMs - groups[focus].rows.first().line.startMs) else 800L
@@ -96,18 +98,22 @@ internal class ViewportMotion {
         val maxOffset = if (footerHeight > 0) maxOf(0f, geometry.totalHeight - height * .35f) else maxOf(0f, geometry.tops.last())
         val offset = if (manual) manualOffset.coerceIn(-height * .65f, maxOffset) else if (overflow.latestOnly) aligned
             else lyricScrollAnchor(groups, geometry, timeMs, height, aligned)
+        val seeking = now < seekUntil
+        val bulkPositions = scrollSpring.update(geometry.tops, rows.map { it.y }, focusIndex, focusJump,
+            offset, currentOffset, height, dt, !first && !immediate && !manual && !footerFocused,
+            if (seeking) 90f else stiffness, if (seeking) 15f else sqrt(stiffness) * 2.2f)
         currentOffset = offset
         val lag = if (first || now < seekUntil) 0f else abs(rows[focusIndex].y.value - (geometry.tops[focusIndex] - offset))
         val response = fallback.responseSeconds(focusIndex, playbackRate, lag, height,
-            !immediate && !manual && !footerFocused && now >= seekUntil && playing != false && interludeBefore == null, dt)
+            bulkPositions == null && !immediate && !manual && !footerFocused && now >= seekUntil && playing != false && interludeBefore == null, dt)
         val transitionDt = if (response == null) dt else dt * maxOf(1f, .3f / (response * 2.5f))
         rows.forEachIndexed { index, row ->
             row.overflowOpacity = overflow.rows[index].opacity
             val target = geometry.tops[index] - offset
             val stagger = (abs(index - motionFocus) * 45L).coerceAtMost(270) * 1_000_000
-            val seeking = now < seekUntil
             row.y.configure(if (seeking) 90f else stiffness, if (seeking) 15f else sqrt(stiffness) * 2.2f)
-            if (first || immediate) row.y.snap(target)
+            if (bulkPositions != null) row.y.snap(bulkPositions[index])
+            else if (first || immediate) row.y.snap(target)
             else if (response != null) row.y.follow(target, dt, response)
             else if (seeking || active[index] || now - focusStamp >= stagger || manual) row.y.update(target, dt)
             val scale = if (active[index]) 1f else .97f
@@ -124,7 +130,6 @@ internal class ViewportMotion {
                 else { voice.scale.update(voiceScale, dt); voice.opacity.update(opacity, dt) }
             }
         }
-        val seeking = now < seekUntil
         val footerStagger = (abs(groups.size - motionFocus) * 45L).coerceAtMost(270) * 1_000_000
         // Seeks retarget the current footer animation; only disabling motion skips transitions.
         footer.update(geometry.footerTop - offset, footerHeight > 0, footerFocused,
