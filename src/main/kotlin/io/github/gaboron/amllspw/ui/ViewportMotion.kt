@@ -77,8 +77,10 @@ internal class ViewportMotion {
         overflow.prepare(groups.size, seek)
         val previousGeometry = LyricGeometry(groups, backgroundExpansion, interludeBefore, slotHeight, footerHeight, overflow.expansion)
         overflow.update(groups, previousGeometry, timeMs, height, dt,
-            !manual && playing != false && interludeBefore == null, immediate)
+            !manual && playing != false && interludeBefore == null, immediate,
+            focus = activeGroup.takeIf { interludeBefore == null })
         val geometry = LyricGeometry(groups, backgroundExpansion, interludeBefore, slotHeight, footerHeight, overflow.expansion)
+        val followGeometry = LyricGeometry(groups, backgroundExpansion, interludeBefore, slotHeight, footerHeight, overflow.plannedExpansion)
         val focusIndex = (if (overflow.latestOnly) groups.indexOfLast { group -> group.rows.any { it.line.startMs <= timeMs } }
             else activeGroup).coerceIn(groups.indices)
         // Like upstream, manual browsing freezes the previous footer focus. The bottom is a
@@ -92,12 +94,17 @@ internal class ViewportMotion {
             stiffness = 170f + 50f * (1f - ((interval - 100f) / 700f).coerceIn(0f, 1f)).pow(.2f)
             focus = motionFocus; focusStamp = now
         }
-        val focal = if (footerFocused) geometry.footerTop + footerHeight * .5f else
-            geometry.interludeTop?.let { it + slotHeight / 2 } ?: (geometry.tops[focusIndex] + geometry.mainHeights[focusIndex] * .35f)
+        val focal = if (footerFocused) followGeometry.footerTop + footerHeight * .5f else
+            followGeometry.interludeTop?.let { it + slotHeight / 2 } ?: (followGeometry.tops[focusIndex] + followGeometry.mainHeights[focusIndex] * .35f)
         val aligned = focal - height * .35f
         val maxOffset = if (footerHeight > 0) maxOf(0f, geometry.totalHeight - height * .35f) else maxOf(0f, geometry.tops.last())
-        val offset = if (manual) manualOffset.coerceIn(-height * .65f, maxOffset) else if (overflow.latestOnly) aligned
-            else lyricScrollAnchor(groups, geometry, timeMs, height, aligned)
+        val followOffset = if (overflow.latestOnly) aligned else lyricScrollAnchor(groups, followGeometry, timeMs, height, aligned,
+            focus = focusIndex.takeIf { !footerFocused && interludeBefore == null })
+        // Keep the focused row at its planned screen position while completed slots close.
+        // Their changing prefix height is a layout shift, not a second scroll animation.
+        val layoutShift = if (footerFocused) geometry.footerTop - followGeometry.footerTop
+            else geometry.tops[focusIndex] - followGeometry.tops[focusIndex]
+        val offset = if (manual) manualOffset.coerceIn(-height * .65f, maxOffset) else followOffset + layoutShift
         val seeking = now < seekUntil
         val bulkPositions = scrollSpring.update(geometry.tops, rows.map { it.y }, focusIndex, focusJump,
             offset, currentOffset, height, dt, !first && !immediate && !manual && !footerFocused,

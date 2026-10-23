@@ -7,6 +7,7 @@ import kotlin.math.abs
 internal class LyricScrollSpring {
     private val offset = SpringMotion()
     private var residuals = emptyList<SpringMotion>()
+    private var previousTops = floatArrayOf()
     private var active = false
 
     fun update(tops: FloatArray, positions: List<SpringMotion>, focus: Int, focusJump: Int,
@@ -22,7 +23,12 @@ internal class LyricScrollSpring {
             // restore the layout without introducing per-row start delays or crossings.
             residuals = positions.mapIndexed { index, row -> SpringMotion(row.value - (tops[index] - origin), 170f, 28f) }
             active = true
+        } else {
+            val shift = tops[focus] - previousTops[focus]
+            offset.value += shift
+            residuals.forEachIndexed { index, row -> row.value += shift - (tops[index] - previousTops[index]) }
         }
+        previousTops = tops.copyOf()
         offset.configure(stiffness, damping)
         offset.update(targetOffset, dt)
         val result = FloatArray(tops.size) { index -> tops[index] - offset.value + residuals[index].update(0f, dt) }
