@@ -6,6 +6,8 @@ internal class SpringMotion(var value: Float = 0f, private var stiffness: Float 
     var velocity = 0f; private set
     fun configure(stiffness: Float, damping: Float) { this.stiffness = stiffness; this.damping = damping }
     fun snap(target: Float) { value = target; velocity = 0f }
+    /** Transfer an in-flight spring sample without discarding its momentum. */
+    fun transfer(position: Float, speed: Float) { value = position; velocity = speed }
     /** Keep spring acceleration while braking a retargeted or overshooting scroll. */
     fun updateBounded(target: Float, deltaSeconds: Float): Float {
         if (deltaSeconds <= 0f) return value
