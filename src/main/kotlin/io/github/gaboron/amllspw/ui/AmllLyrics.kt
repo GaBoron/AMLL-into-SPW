@@ -25,7 +25,7 @@ import kotlin.math.*
 internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: RenderOptions, modifier: Modifier,
     onTime: () -> Long, onSeek: (Long) -> Unit, showSecondary: Boolean,
     onPlaying: () -> Boolean? = { null }, onSeekGeneration: () -> Long = { 0 },
-    bottomContent: LyricFooterContent? = null) {
+    bottomContent: LyricFooterContent? = null, onPlaybackRate: () -> Float? = { null }) {
     val measurer = rememberTextMeasurer(cacheSize = 1_024)
     val painter = remember(measurer) { LyricLinePainter(measurer) }
     DisposableEffect(painter) { onDispose { painter.close() } }
@@ -44,6 +44,7 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
     val offsetMs by rememberUpdatedState(presentation.offsetMs)
     val playingState by rememberUpdatedState(onPlaying)
     val seekGeneration by rememberUpdatedState(onSeekGeneration)
+    val sourceRate by rememberUpdatedState(onPlaybackRate)
     val clock = remember(presentation.trackKey, presentation.document, presentation.offsetMs) { FramePlaybackClock() }
     val density = LocalDensity.current
     var frameTime by remember { mutableLongStateOf(0L) }
@@ -82,10 +83,9 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
         val dt = if (cache.lastFrame == 0L) 0f else ((nanos - cache.lastFrame) / 1e9f).coerceIn(0f, .064f)
         cache.lastFrame = nanos
         val playing = playingState()
-        val hostPosition = clock.sample(preciseTime(), nanos, playing, seekGeneration())
+        val hostPosition = clock.sample(preciseTime(), nanos, playing, seekGeneration(), sourceRate())
         val position = (hostPosition - presentation.offsetMs).coerceAtLeast(0)
-        val seek = clock.discontinuity || (cache.lastPosition >= 0 && abs(position - cache.lastPosition) > 1_500)
-        cache.lastPosition = position
+        val seek = clock.discontinuity
         val fontSize = options.typography.fontSize(size.width / density.density)
         val margin = size.width * .075f
         val width = (size.width - margin * 2).roundToInt().coerceAtLeast(1)
@@ -171,7 +171,6 @@ private class LayoutCache {
     var footer: LyricFooterLayout? = null
     var footerContent: LyricFooterContent? = null
     var lastFrame = 0L
-    var lastPosition = -1L
     var backgroundTime = 0f
     var backgroundPosition = 0L
 }

@@ -21,6 +21,7 @@ internal fun NativeLyricsContent(runtime: AmllRuntime, modifier: Modifier, showS
             lastPosition[0]
         }, { runtime.seekTo(scene.trackKey, it) }, showSecondary,
             { if (scene.trackKey == presentation.trackKey) runtime.clock.playingState(scene.trackKey) else false },
-            { runtime.clock.seekGeneration })
+            { runtime.clock.seekGeneration },
+            onPlaybackRate = { runtime.clock.playbackRate(scene.trackKey) })
     }
 }
