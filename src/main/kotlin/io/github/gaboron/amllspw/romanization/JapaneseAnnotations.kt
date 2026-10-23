@@ -16,14 +16,18 @@ internal class JapaneseAnnotations {
             value.substringBefore('-').substringBefore('_').lowercase() in setOf("ja", "jpn")
         } } || document.lines.any { line -> line.text.any(::isKana) }
         var remaining = 32_768
-        val lines = document.lines.map { line ->
+        val lines = document.lines.map { original ->
+            var line = original
             if (!japanese ||
                 line.text.any { Character.UnicodeScript.of(it.code) == Character.UnicodeScript.HANGUL } ||
                 (!line.text.any(::isKana) && !line.text.codePoints().anyMatch(Character::isIdeographic))) return@map line
+            if (line.text.length !in 1..512 || line.text.length > remaining ||
+                line.romanizationSyllables.isNotEmpty()) return@map if (line.romanization.isNotBlank())
+                    line.copy(romanizationAbove = true) else line
+            if (document.origin == LyricDocument.Origin.HOST && line.translation.isNotBlank())
+                line = HostRomanization.extract(line, readings.analyze(line.text))
             // Uncertain matches retain the supplied line above the lyric, rather than changing sides.
             val display = if (line.romanization.isNotBlank()) line.copy(romanizationAbove = true) else line
-            if (line.text.length !in 1..512 || line.text.length > remaining ||
-                line.romanizationSyllables.isNotEmpty()) return@map display
             val existing = line.rubyAnnotations()
             if (line.text.indices.filter { line.text[it].isLetterOrDigit() }.all { index ->
                 existing.any { index >= it.start && index < it.end }
