@@ -8,6 +8,20 @@ internal class SpringMotion(var value: Float = 0f, private var stiffness: Float 
     fun snap(target: Float) { value = target; velocity = 0f }
     /** Transfer an in-flight spring sample without discarding its momentum. */
     fun transfer(position: Float, speed: Float) { value = position; velocity = speed }
+    /** Forecast the current spring without changing its position or momentum. */
+    fun preview(target: Float, seconds: Float): Float {
+        val position = value
+        val speed = velocity
+        var remaining = seconds.coerceAtLeast(0f)
+        while (remaining > 0f) {
+            val step = minOf(remaining, .064f)
+            update(target, step)
+            remaining -= step
+        }
+        val projected = value
+        transfer(position, speed)
+        return projected
+    }
     /** Keep spring acceleration while braking a retargeted or overshooting scroll. */
     fun updateBounded(target: Float, deltaSeconds: Float): Float {
         if (deltaSeconds <= 0f) return value

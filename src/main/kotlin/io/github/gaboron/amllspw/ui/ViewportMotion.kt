@@ -28,11 +28,12 @@ internal class ViewportMotion {
     private var manualOffset = 0f
     private var currentOffset = 0f
     private var lastNow = System.nanoTime()
-    private var stiffness = 210f
+    private var stiffness = 170f
     private var seekUntil = 0L
     private val seekFollow = LyricSeekFollow()
     private val overflow = LyricOverflowCollapse()
     private val scrollSpring = LyricScrollSpring()
+    private val staggerSpacing = LyricStaggerSpacing()
 
     fun scroll(delta: Float, now: Long = lastNow) {
         seekFollow.cancel()
@@ -91,14 +92,10 @@ internal class ViewportMotion {
         // separate target, never a synthetic timed lyric or a focus inferred from the last row.
         val footerFocused = footerHeight > 0 && (if (manual) footer.focused else endOfLyrics)
         val motionFocus = if (footerFocused) groups.size else focusIndex
-        val focusJump = if (focus >= 0) abs(motionFocus - focus) else 0
-        val nearbyChange = motionFocus != focus && focus >= 0 && now - focusStamp < 300_000_000L
-        val tallChange = motionFocus != focus && maxOf(groups[focusIndex].height,
-            groups.getOrNull(focus)?.height ?: 0f) > height * .4f
         if (seek) seekUntil = now + 650_000_000
         if (motionFocus != focus) {
             val interval = if (focus in groups.indices) abs(groups[focusIndex].rows.first().line.startMs - groups[focus].rows.first().line.startMs) else 800L
-            stiffness = 210f + 40f * (1f - ((interval - 100f) / 700f).coerceIn(0f, 1f)).pow(.2f)
+            stiffness = 170f + 50f * (1f - ((interval - 100f) / 700f).coerceIn(0f, 1f)).pow(.2f)
             focus = motionFocus; focusStamp = now
         }
         val focal = if (footerFocused) followGeometry.footerTop + footerHeight * .5f else
@@ -118,23 +115,27 @@ internal class ViewportMotion {
                 (followGeometry.tops[index] - followOffset).takeIf { it >= 0f } ?: Float.NEGATIVE_INFINITY
             else Float.NEGATIVE_INFINITY
         }
-        val coupled = focusJump > 1 || nearbyChange || tallChange || cohortFocus != timelineFocus ||
-            abs(offset - currentOffset) > height * .4f || overflow.rows.any { it.collapsing }
-        // Playback speed changes the media clock; it must not turn every visual spring
-        // into a near-instant transition. Dense changes keep the same in-flight motion.
-        val scrollStiffness = stiffness
+        val targets = FloatArray(groups.size) { geometry.tops[it] - offset }
+        val free = BooleanArray(groups.size) { seeking || active[it] || manual || abs(rows[it].y.velocity) > .5f }
+        rows.forEach { it.y.configure(if (seeking) 90f else stiffness, if (seeking) 15f else sqrt(stiffness) * 2.2f) }
+        val extents = groups.mapIndexed { index, group -> lyricRowExtent(group, rows[index].backgroundSlide.value) { voice ->
+            val state = rows[index].voices[voice]
+            state.opacity.value * state.visibility.value * overflow.rows[index].opacity > .01f
+        } }
+        val elapsed = (now - focusStamp) / 1e9f
+        val delays = staggerSpacing.update(rows.map { it.y }, targets, extents, motionFocus, elapsed, dt, height, free,
+            !first && !immediate && !manual && !footerFocused)
+        val coupled = staggerSpacing.requiresCoupling || overflow.rows.any { it.collapsing }
         val bulkPositions = scrollSpring.update(geometry.tops, geometry.heights, rows.map { it.y }, focusIndex,
-            offset, dt, !first && !immediate && !manual && !footerFocused, coupled, scrollStiffness, minimumY)
+            offset, dt, !first && !immediate && !manual && !footerFocused, coupled, stiffness, minimumY)
         currentOffset = offset
         rows.forEachIndexed { index, row ->
             row.overflowOpacity = overflow.rows[index].opacity
-            val target = geometry.tops[index] - offset
-            val stagger = (abs(index - motionFocus) * 45L).coerceAtMost(270) * 1_000_000
-            row.y.configure(stiffness, sqrt(stiffness) * 1.6f)
+            val target = targets[index]
             if (bulkPositions != null) row.y.transfer(bulkPositions[index],
                 if (dt > 0f) (bulkPositions[index] - row.y.value) / dt else row.y.velocity)
             else if (first || immediate) row.y.snap(target)
-            else if (seeking || index <= focusIndex || active[index] || now - focusStamp >= stagger || manual) row.y.update(target, dt)
+            else if (free[index] || elapsed >= delays[index]) row.y.update(target, dt)
             val scale = if (active[index]) 1f else .97f
             if (first || seek || immediate) row.scale.snap(scale)
             else row.scale.update(scale, dt)
