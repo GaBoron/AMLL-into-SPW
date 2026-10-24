@@ -1,55 +1,63 @@
-# AMLL into SPW
+<h1 align="center">AMLL into SPW</h1>
 
-将 Apple Music 风格的动态歌词融入 [Salt Player for Windows](https://github.com/Moriafly/SPW)（SPW）原生播放界面。
+<p align="center">
+  将 Apple Music 风格的动态歌词融入 <a href="https://github.com/Moriafly/SPW">Salt Player for Windows</a> 原生播放界面。
+</p>
 
-插件通过 [SPW Workshop API](https://github.com/Moriafly/spw-workshop-api) 接入原生播放页面，以 Compose / Skia 呈现 [Apple Music-like Lyrics（AMLL）](https://github.com/amll-dev/applemusic-like-lyrics) 风格的歌词效果。正常进入 SPW 播放界面即可使用，保留宿主播放控制，无需打开独立窗口。
+<p align="center">
+  <a href="https://github.com/GaBoron/AMLL-into-SPW/releases/latest"><img alt="最新版本" src="https://img.shields.io/github/v/release/GaBoron/AMLL-into-SPW?label=Release&color=6750A4"></a>
+  <img alt="适配 SPW 1.19.0" src="https://img.shields.io/badge/SPW-1.19.0-3A7AFE">
+  <img alt="Workshop API dev23" src="https://img.shields.io/badge/Workshop_API-dev23-64748B">
+  <a href="LICENSE"><img alt="许可证" src="https://img.shields.io/badge/License-AGPL--3.0--only-2E8B57"></a>
+</p>
 
-## 歌词显示
+<p align="center">
+  <a href="https://github.com/GaBoron/AMLL-into-SPW/releases/latest">下载插件</a> ·
+  <a href="docs/功能说明.md">功能详解</a> ·
+  <a href="https://github.com/GaBoron/AMLL-into-SPW/issues">问题反馈</a>
+</p>
 
-- 逐字渐变高亮、浮动和长音发光；行级歌词使用整行高亮。
-- 按演唱者左右对唱，双方在对侧留出间距，允许多个声部同时高亮；背景人声随所属歌词组进入时展开，保留完整尾音，未展开时不预留空行。
-- 弹簧滚动、错落位移、活动行缩放、非活动行模糊和视口边缘淡出。
-- 持续密集换行时缩短过渡并平滑跟随，同步高亮与声部显示；近同时声部或偶发短间隔保留普通弹簧，只有持续明显落后时才启用平滑追赶。
-- 显示翻译、音译和 Ruby 注音；长句参考标点、空格和词界均衡换行，并保留歌词原有的换行。
-- 支持 TTML 中带独立时间戳的逐字音译，显示在对应原文上方，随原词上浮并逐步渐变高亮；可选的实验性日语注音支持匹配整行音译或离线生成读音。
-- 内置思源黑体 SC 可变字体，可在设置下拉框选择 ExtraLight、Light、Regular、Medium、Bold 和 Heavy 六种字重，默认中等 500，最粗 900，字体缺少的字符回退到系统字体；字号可选自动适应窗口或 18–72 的预设值，翻译、音译与注音按比例缩放。
-- 歌词区域透明衔接 SPW 整页背景，前奏与长间奏在独立占位中显示三点提示。
-- 末尾独立底栏显示歌词文件中的歌曲元数据和实际歌词来源；以较小、较淡的文字随歌词滚动，唱完后聚焦显示，可手动滚动查看完整内容。其他插件可补充 key/value 信息：AMLL 自身信息在前，插件信息按声明名称的拼音／字母顺序排列，每组末尾以更小、更淡的 `From: 名称` 标注来源。
-- 鼠标悬停显示歌词行框，点击歌词跳转并平滑滚动；滚轮、方向键和 Page Up / Page Down 浏览，停止操作约三秒后恢复跟随；双击、Home 或 Esc 立即恢复跟随。
-- 纯音乐页面上方显示“纯音乐 / INSTRUMENTAL”，中央以独立阅读排版随机展示一首完整诗词，隐藏 AMLL 自身的元数据和歌词来源底栏，仍显示其他插件提交的信息。内置 [chinese-poetry](https://github.com/chinese-poetry/chinese-poetry) 中从《诗经》《楚辞》到汉魏诗、唐诗、五代词、宋词、元曲与清词的选篇，离线可用；同一首歌保留选篇，诗词切换及恢复正常歌词时淡入淡出，较长篇目可滚动阅读。
+通过 SPW Workshop API 接入原生播放页面，使用 Compose / Skia 绘制歌词。**无需独立窗口**，进入播放界面即可体验，并保留原有播放控制。
 
-在插件设置中可切换模糊、缩放、发光、弹簧动画、隐藏已唱歌词和音译。开启“彩色歌词”后，歌词、翻译和间奏提示使用歌曲封面的明亮主色；默认关闭，无封面时使用白色。隐藏已唱歌词时，整组声部唱完后渐隐；暂停或手动浏览时重新显示。减少动态效果模式保留准确高亮，关闭模糊、发光、缩放与弹簧动画。
+## ✨ 功能亮点
 
-“自动生成逐字罗马注音（实验性）”默认关闭。开启后仅处理识别为日语的歌词：保留已有逐字音译和 Ruby 注音；对仅有整行音译的歌词，按本地分词读音匹配并保留原有拼写；没有音译时使用随包提供的 Kuromoji 词典离线生成。汉字词组可按整词注音；只能部分匹配时，对齐可靠片段，将其余音译均匀分布在对应原文上方，随原词平滑浮动与高亮；整行无法匹配时仍在上方保留原音译。人名、特殊读法或歌词中的变读可能无法识别。分析在后台加载歌词时执行并使用内存缓存，不改变原文、高亮时间轴或任何文件；各歌词来源均可使用，无需依赖 SPW Lyrics。关闭后恢复原有歌词，已有逐字音译与注音仍由“显示音译与注音”控制。
+| 功能 | 说明 |
+| --- | --- |
+| 🎵 动态歌词 | 逐字渐变高亮、浮动、长音发光、平滑滚动和过渡效果 |
+| 🎤 多声部 | 左右对唱、同时演唱、可展开的背景人声 |
+| 🌐 多语言信息 | 翻译、音译、Ruby 注音、带时间戳的逐字音译，以及实验性日语逐字罗马注音 |
+| 🖱️ 交互浏览 | 点击歌词跳转；鼠标与键盘浏览后自动恢复跟随 |
+| 🎨 外观设置 | 字重、字号、歌词颜色和动效调节；支持减少动态效果、隐藏已唱歌词 |
+| 📖 纯音乐模式 | 在纯音乐页面离线展示诗词，支持手动阅读 |
+| 🧩 原生集成 | 透明衔接 SPW 背景；歌词末尾显示元数据、歌词来源与插件补充信息 |
 
-## 歌词来源
+更多动画细节、设置选项及实验性注音的适用范围，见 [功能说明](docs/功能说明.md)。
 
-按以下顺序读取：
+## 📦 安装与使用
 
-1. 歌曲同名 `.ttml` 文件。
-2. 音频标签中的原始 TTML；普通歌词标签不会挡住其他 TTML 标签。
-3. 歌曲同名 `.lrc` 文件中的 TTML 内容。
-4. 其他插件通过原始 TTML 接口提供的歌词。
-5. SPW 已解析的 SPL / LRC 时间轴。
+**要求：SPW 1.19.0 / Workshop API 0.1.0-dev23**
 
-原始 TTML 直接解析，保留原文，不经过 SPL。没有 TTML 时，使用宿主提供的歌词行、逐字单元和翻译生成内存中的兼容 TTML；不改写音频、歌词文件或其他插件缓存，也不为行级歌词编造逐字时间戳。
+1. 从 [Releases](https://github.com/GaBoron/AMLL-into-SPW/releases/latest) 下载 `.spmod` 文件，通过 SPW 的插件安装功能导入。
+2. 授予“修改宿主类 / 界面”和“读取曲库”权限后启用插件。
+3. 进入 SPW 播放界面即可查看歌词，并可在插件设置中调整显示效果。
 
-[SPW Lyrics](https://github.com/GaBoron/SPW-Lyrics) 已接入原始 TTML 互通，同时启用即可传递完整歌词信息。其他歌词插件也可使用同一接口；协议、偏移约定和通用调用模板见 [TTML 接入指南](docs/TTML互通.md)，其中以 SPW Lyrics 为接入示例。
+停用插件后会恢复 SPW 原有歌词界面，并关闭相关接口、清理外部信息。
 
-需要补充歌曲匹配、作者或其他信息的插件，可使用独立的 [底部信息栏接口](docs/底部信息栏接口.md)。调用方只提交名称和 key/value，信息样式与 `From: …` 由 AMLL 统一呈现，无需提交 TTML。
+## 🎼 歌词来源
 
-## 使用要求
+优先读取本地原始 **TTML**，其次使用其他插件提交的原始 TTML，最后回退到 SPW 已解析的 SPL / LRC 歌词。完整顺序见 [歌词来源与优先级](docs/功能说明.md#歌词来源与优先级)。
 
-使用 **SPW 1.19.0 / Workshop API 0.1.0-dev23**。启用时需要授权“修改宿主类 / 界面”和“读取曲库”。
+**不修改音频和歌词文件，也不为逐行歌词编造逐字时间轴。**
 
-从 [Releases](https://github.com/GaBoron/AMLL-into-SPW/releases/latest) 下载 `.spmod` 文件，使用 SPW 的插件安装功能安装，授权后启用。歌词获取插件可保持原有流程，已接入的插件会自动提交原始 TTML；歌曲本地 TTML 仍优先显示。
+## 🔌 与其他插件互通
 
-停用插件后恢复宿主歌词界面，关闭 TTML 与底部信息栏接口，并清空外部信息。
+- **[原始 TTML 接口](docs/TTML互通.md)**：已与 [SPW Lyrics](https://github.com/GaBoron/SPW-Lyrics) 互通，可接收完整歌词及声部、翻译、注音等信息；其他歌词插件也能接入。
+- **[底部信息栏接口](docs/底部信息栏接口.md)**：其他插件可提供歌曲匹配、作者等 key/value 信息，无需提交 TTML。
 
-## 相关项目
+## 📚 相关项目与许可
 
 - [Salt Player for Windows](https://github.com/Moriafly/SPW)：目标播放器。
-- [SPW Workshop API](https://github.com/Moriafly/spw-workshop-api)：插件与原生 Hook 接口。
-- [Apple Music-like Lyrics](https://github.com/amll-dev/applemusic-like-lyrics)：歌词效果和交互设计的主要参考。
+- [SPW Workshop API](https://github.com/Moriafly/spw-workshop-api)：插件与原生界面接入接口。
+- [Apple Music-like Lyrics](https://github.com/amll-dev/applemusic-like-lyrics)：歌词效果与交互设计参考。
 
-本项目是独立的社区项目，不代表上述项目的官方合作或支持。使用 AGPL-3.0-only，第三方组件见 [许可证说明](THIRD_PARTY_NOTICES.md)。
+本项目是独立的社区项目，不代表上述项目的官方合作或支持。采用 **AGPL-3.0-only** 许可证；第三方组件见 [许可证说明](THIRD_PARTY_NOTICES.md)。
