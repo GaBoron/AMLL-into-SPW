@@ -138,7 +138,8 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
                 voice.hover.update(hover, dt)
                 paintRowHover(bounds, voice.hover.value * visibility, pointer.pressed, row.emPx)
                 val edgeAlpha = minOf((paintY / 45f).coerceIn(0f, 1f), ((size.height - paintY) / 70f).coerceIn(0f, 1f)) * voice.opacity.value.coerceIn(0f, 1f) * visibility
-                val scale = if (!options.scale || options.reducedMotion) 1f else motion.scale.value * voice.scale.value
+                val scale = if (!options.scale || options.reducedMotion) 1f else
+                    motion.scale.value * voice.scale.value * motion.overflowScale
                 withTransform({
                     translate(margin + row.inset, paintY)
                     scale(scale, scale, Offset(if (row.line.duet) row.main.size.width.toFloat() else 0f, row.height / 2))

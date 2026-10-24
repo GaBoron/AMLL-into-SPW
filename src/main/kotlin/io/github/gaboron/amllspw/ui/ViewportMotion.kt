@@ -14,7 +14,8 @@ internal class ViewportMotion {
         val visibility: ActivationEnvelope = ActivationEnvelope(1f, .4f, .4f, CubicBezier(.25f, .1f, .25f, 1f)),
         val hover: ActivationEnvelope = ActivationEnvelope(0f, .25f, .25f, CubicBezier(.25f, .1f, .25f, 1f)))
     data class RowMotion(val y: SpringMotion, val voices: List<VoiceMotion>, val scale: SpringMotion = SpringMotion(.97f, 90f, 18f),
-        val backgroundSlide: SpringMotion = SpringMotion(-80f), var expanded: Boolean = false, var overflowOpacity: Float = 1f)
+        val backgroundSlide: SpringMotion = SpringMotion(-80f), var expanded: Boolean = false,
+        var overflowOpacity: Float = 1f, var overflowScale: Float = 1f)
     data class Hit(val bounds: Rect, val positionMs: Long)
     var hits: List<Hit> = emptyList()
     var height = 0f
@@ -127,11 +128,17 @@ internal class ViewportMotion {
             !first && !immediate && !manual && !footerFocused)
         val collapsing = overflow.rows.any { it.collapsing }
         val coupled = staggerSpacing.requiresCoupling || collapsing
-        val bulkPositions = scrollSpring.update(geometry.tops, geometry.heights, rows.map { it.y }, focusIndex,
+        // Empty slots keep their spring geometry, but must not push incoming text away
+        // from retained voices while a completed, fully faded paragraph is folding.
+        val spacingHeights = FloatArray(groups.size) { index ->
+            if (overflow.rows[index].opacity <= .001f) 0f else geometry.heights[index]
+        }
+        val bulkPositions = scrollSpring.update(geometry.tops, spacingHeights, rows.map { it.y }, focusIndex,
             offset, dt, !first && !immediate && !manual && !footerFocused, coupled, scrollStiffness, minimumY, collapsing)
         currentOffset = offset
         rows.forEachIndexed { index, row ->
             row.overflowOpacity = overflow.rows[index].opacity
+            row.overflowScale = overflow.rows[index].scale
             val target = staggerSpacing.target(index, targets[index], elapsed, free[index] || bulkPositions != null)
             if (bulkPositions != null) row.y.transfer(bulkPositions[index],
                 if (dt > 0f) (bulkPositions[index] - row.y.value) / dt else row.y.velocity)

@@ -1,22 +1,26 @@
 package io.github.gaboron.amllspw.ui
 
-import io.github.gaboron.amllspw.timeline.ActivationEnvelope
+import io.github.gaboron.amllspw.timeline.SpringMotion
 
 /** Free space between retained voices one completed paragraph at a time. */
 internal class LyricOverflowCollapse {
     class Row {
-        private val fade = ActivationEnvelope(1f, .12f, .12f)
-        private val space = ActivationEnvelope(1f, .06f, .06f)
+        private val fade = SpringMotion(1f, 600f, 30f)
+        private val space = SpringMotion(1f, 420f, 30f)
         var hidden = false
         val opacity: Float get() = fade.value
+        val scale: Float get() = .85f + .15f * fade.value
         val expansion: Float get() = space.value
         val collapsing: Boolean get() = hidden && expansion > .001f
 
         fun update(dt: Float, immediate: Boolean) {
-            fade.update(!hidden, dt, immediate)
+            // On restore, open the slot before showing text at its full line height.
+            val visible = if (hidden || (!immediate && space.value < 1f)) 0f else 1f
+            if (immediate) fade.snap(visible) else fade.updateBounded(visible, dt)
             // Keep its full slot until the completed text has faded, so the next row
             // cannot pass through it while opening space for retained voices.
-            space.update(!hidden || fade.value > .001f, dt, immediate)
+            val target = if (!hidden || fade.value > .001f) 1f else 0f
+            if (immediate) space.snap(target) else space.updateBounded(target, dt)
         }
     }
 
