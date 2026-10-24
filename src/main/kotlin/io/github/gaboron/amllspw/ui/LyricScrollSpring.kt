@@ -10,12 +10,18 @@ internal class LyricScrollSpring {
     private var residuals = emptyList<SpringMotion>()
     private var previousTops = floatArrayOf()
     private var active = false
+    private var finishingCollapse = false
 
     fun update(tops: FloatArray, heights: FloatArray, positions: List<SpringMotion>, focus: Int,
         targetOffset: Float, dt: Float, enabled: Boolean, coupled: Boolean, stiffness: Float,
-        minimumY: FloatArray): FloatArray? {
-        if (!enabled || (active && residuals.size != positions.size)) { active = false; return null }
-        if (!active && !coupled) return null
+        minimumY: FloatArray, collapsing: Boolean): FloatArray? {
+        if (!enabled || (active && residuals.size != positions.size)) {
+            active = false; finishingCollapse = false; return null
+        }
+        if (collapsing) finishingCollapse = true
+        // Position and velocity were transferred back to each row on the previous frame.
+        // Release collision-only coupling while the per-row springs are still moving.
+        if (!coupled && !finishingCollapse) { active = false; return null }
         if (!active) {
             val origin = tops[focus] - positions[focus].value
             offset.transfer(origin, -positions[focus].velocity)
@@ -52,8 +58,11 @@ internal class LyricScrollSpring {
             val residual = y - (tops[index] - offset.value)
             if (abs(residual - residuals[index].value) > .001f) residuals[index].transfer(residual, residuals[index].velocity)
         }
+        // Closing slots must finish following the planned layout before releasing rows.
         if (!coupled && abs(offset.value - targetOffset) < .3f && abs(offset.velocity) < 1f &&
-            residuals.all { abs(it.value) < .3f && abs(it.velocity) < 1f }) active = false
+            residuals.all { abs(it.value) < .3f && abs(it.velocity) < 1f }) {
+            active = false; finishingCollapse = false
+        }
         return result
     }
 }

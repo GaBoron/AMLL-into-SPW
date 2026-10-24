@@ -9,14 +9,17 @@ internal class SpringMotion(var value: Float = 0f, private var stiffness: Float 
     /** Transfer an in-flight spring sample without discarding its momentum. */
     fun transfer(position: Float, speed: Float) { value = position; velocity = speed }
     /** Forecast the current spring without changing its position or momentum. */
-    fun preview(target: Float, seconds: Float): Float {
+    fun preview(target: Float, seconds: Float, previousTarget: Float = target, delaySeconds: Float = 0f,
+        frameSeconds: Float = .064f): Float {
         val position = value
         val speed = velocity
         var remaining = seconds.coerceAtLeast(0f)
+        var delay = delaySeconds
         while (remaining > 0f) {
-            val step = minOf(remaining, .064f)
-            update(target, step)
+            val step = minOf(remaining, frameSeconds.coerceIn(1f / 240f, .064f))
+            update(if (delay > .0001f) previousTarget else target, step)
             remaining -= step
+            delay -= step
         }
         val projected = value
         transfer(position, speed)

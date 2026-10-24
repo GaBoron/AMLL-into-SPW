@@ -8,15 +8,29 @@ import kotlin.math.ceil
 internal class LyricStaggerSpacing {
     private var focus = -1
     private var delays = floatArrayOf()
+    private var destinations = floatArrayOf()
+    private var waiting = booleanArrayOf()
+    private var lastElapsed = 0f
     var requiresCoupling = false; private set
 
     fun update(positions: List<SpringMotion>, targets: FloatArray, extents: List<LyricRowExtent?>,
         nextFocus: Int, elapsed: Float, dt: Float, height: Float, free: BooleanArray, enabled: Boolean): FloatArray {
-        if (focus != nextFocus || delays.size != positions.size) {
-            focus = nextFocus
-            delays = FloatArray(positions.size) { (abs(it - focus) * .045f).coerceAtMost(.27f) }
+        if (destinations.size != positions.size) {
+            destinations = targets.copyOf()
+            waiting = BooleanArray(positions.size)
         }
+        if (focus != nextFocus || delays.size != positions.size) {
+            val previous = delays
+            focus = nextFocus
+            delays = FloatArray(positions.size) { index ->
+                val delay = (abs(index - focus) * .045f).coerceAtMost(.27f)
+                // A fast sequence must not keep postponing a row's first retarget forever.
+                if (waiting[index]) minOf(delay, (previous[index] - lastElapsed - dt).coerceAtLeast(0f)) else delay
+            }
+        }
+        lastElapsed = elapsed
         requiresCoupling = false
+        if (!enabled) { destinations = targets.copyOf(); waiting.fill(false) }
         if (!enabled || dt <= 0f || height <= 0f) return delays
         val step = dt.coerceIn(1f / 240f, .064f)
         val samples = floatArrayOf(0f, .05f, .1f, .16f, .24f, .34f, .48f)
@@ -28,8 +42,7 @@ internal class LyricStaggerSpacing {
         fun project(index: Int, ahead: Float, delay: Float = delays[index]): Float {
             val wait = if (free[index]) 0f else (delay - elapsed).coerceAtLeast(0f)
             val startsIn = ceil(wait / step) * step
-            val seconds = if (ahead + .0001f >= startsIn) step + ahead - startsIn else 0f
-            return positions[index].preview(targets[index], seconds)
+            return positions[index].preview(targets[index], step + ahead, destinations[index], startsIn, step)
         }
         fun pairOverlaps(upper: Int, lower: Int, delay: Float): Boolean = samples.any { sample ->
             val ahead = ceil(sample / step) * step
@@ -73,5 +86,12 @@ internal class LyricStaggerSpacing {
         }
         requiresCoupling = collision() != null
         return delays
+    }
+
+    /** Stagger the new destination, never stop a spring that is already moving. */
+    fun target(index: Int, next: Float, elapsed: Float, free: Boolean): Float {
+        waiting[index] = !free && elapsed < delays[index] && destinations[index] != next
+        if (!waiting[index]) destinations[index] = next
+        return destinations[index]
     }
 }

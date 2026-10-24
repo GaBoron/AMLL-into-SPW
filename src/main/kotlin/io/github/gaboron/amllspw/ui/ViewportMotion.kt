@@ -77,17 +77,15 @@ internal class ViewportMotion {
         }
         val backgroundExpansion = rows.map { 1f + it.backgroundSlide.value / 80f }
         val timelineFocus = activeGroup.coerceIn(groups.indices)
-        val cohortFocus = if (!manual && !seek && playing != false && interludeBefore == null)
-            exitCohort.focus(timelineFocus, timeMs, playbackRate) else timelineFocus
         overflow.prepare(groups.size, seek)
         val previousGeometry = LyricGeometry(groups, backgroundExpansion, interludeBefore, slotHeight, footerHeight, overflow.expansion)
         overflow.update(groups, previousGeometry, timeMs, height, dt,
             !manual && playing != false && interludeBefore == null, immediate,
-            focus = cohortFocus.takeIf { interludeBefore == null })
+            focus = timelineFocus.takeIf { interludeBefore == null })
         val geometry = LyricGeometry(groups, backgroundExpansion, interludeBefore, slotHeight, footerHeight, overflow.expansion)
         val followGeometry = LyricGeometry(groups, backgroundExpansion, interludeBefore, slotHeight, footerHeight, overflow.plannedExpansion)
         val focusIndex = (if (overflow.latestOnly) groups.indexOfLast { group -> group.rows.any { it.line.startMs <= timeMs } }
-            else cohortFocus).coerceIn(groups.indices)
+            else timelineFocus).coerceIn(groups.indices)
         // Like upstream, manual browsing freezes the previous footer focus. The bottom is a
         // separate target, never a synthetic timed lyric or a focus inferred from the last row.
         val footerFocused = footerHeight > 0 && (if (manual) footer.focused else endOfLyrics)
@@ -116,26 +114,29 @@ internal class ViewportMotion {
             else Float.NEGATIVE_INFINITY
         }
         val targets = FloatArray(groups.size) { geometry.tops[it] - offset }
-        val free = BooleanArray(groups.size) { seeking || active[it] || manual || abs(rows[it].y.velocity) > .5f }
-        rows.forEach { it.y.configure(if (seeking) 90f else stiffness, if (seeking) 15f else sqrt(stiffness) * 2.2f) }
+        val free = BooleanArray(groups.size) { seeking || active[it] || manual }
+        val scrollStiffness = stiffness * exitCohort.stiffnessScale(focusIndex, timeMs, rows.map { it.y }, targets,
+            height, !first && !seek && !immediate && !manual && !footerFocused && playing != false && interludeBefore == null)
+        rows.forEach { it.y.configure(if (seeking) 90f else scrollStiffness, if (seeking) 15f else sqrt(scrollStiffness) * 2.2f) }
         val extents = groups.mapIndexed { index, group -> lyricRowExtent(group, rows[index].backgroundSlide.value) { voice ->
             val state = rows[index].voices[voice]
             state.opacity.value * state.visibility.value * overflow.rows[index].opacity > .01f
         } }
         val elapsed = (now - focusStamp) / 1e9f
-        val delays = staggerSpacing.update(rows.map { it.y }, targets, extents, motionFocus, elapsed, dt, height, free,
+        staggerSpacing.update(rows.map { it.y }, targets, extents, motionFocus, elapsed, dt, height, free,
             !first && !immediate && !manual && !footerFocused)
-        val coupled = staggerSpacing.requiresCoupling || overflow.rows.any { it.collapsing }
+        val collapsing = overflow.rows.any { it.collapsing }
+        val coupled = staggerSpacing.requiresCoupling || collapsing
         val bulkPositions = scrollSpring.update(geometry.tops, geometry.heights, rows.map { it.y }, focusIndex,
-            offset, dt, !first && !immediate && !manual && !footerFocused, coupled, stiffness, minimumY)
+            offset, dt, !first && !immediate && !manual && !footerFocused, coupled, scrollStiffness, minimumY, collapsing)
         currentOffset = offset
         rows.forEachIndexed { index, row ->
             row.overflowOpacity = overflow.rows[index].opacity
-            val target = targets[index]
+            val target = staggerSpacing.target(index, targets[index], elapsed, free[index] || bulkPositions != null)
             if (bulkPositions != null) row.y.transfer(bulkPositions[index],
                 if (dt > 0f) (bulkPositions[index] - row.y.value) / dt else row.y.velocity)
             else if (first || immediate) row.y.snap(target)
-            else if (free[index] || elapsed >= delays[index]) row.y.update(target, dt)
+            else row.y.update(target, dt)
             val scale = if (active[index]) 1f else .97f
             if (first || seek || immediate) row.scale.snap(scale)
             else row.scale.update(scale, dt)
