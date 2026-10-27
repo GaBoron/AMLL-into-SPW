@@ -55,7 +55,7 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
             frameTime = it
         }
     }
-    val cache = remember(presentation.document, density, showSecondary, options.romanization, options.typography) { LayoutCache() }
+    val cache = remember(presentation.document, density, showSecondary, options.translation, options.romanization, options.typography) { LayoutCache() }
     val lyricColor = if (options.coloredLyrics) Color(presentation.lyricColor) else Color.White
     val scroll = rememberScrollableState { delta -> viewport.scroll(delta); delta }
     val hovering = pointer.position?.let { point -> viewport.hits.any { it.bounds.contains(point) } } == true
@@ -98,7 +98,8 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
         if (cache.width != width || cache.fontSize != fontSize) {
             cache.width = width
             cache.fontSize = fontSize
-            cache.groups = layoutLyrics(presentation.document, measurer, width, fontSize, showSecondary, options.romanization, options.typography)
+            cache.groups = layoutLyrics(presentation.document, measurer, width, fontSize, showSecondary,
+                romanization = options.romanization, translation = options.translation, typography = options.typography)
             cache.footer = layoutLyricFooter(footerContent, measurer, width, fontSize, options.typography)
             cache.footerContent = footerContent
             painter.clearTextCache()
