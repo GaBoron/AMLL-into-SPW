@@ -3,6 +3,7 @@ package io.github.gaboron.amllspw.host
 import com.xuncorp.spw.workshop.api.WorkshopApi
 import org.objectweb.asm.*
 import java.io.File
+import java.net.JarURLConnection
 import java.util.jar.JarFile
 
 /** Resolves original source trace markers after obfuscation; refuses missing/ambiguous call sites. */
@@ -11,7 +12,7 @@ internal data class NativeLyricsTarget(val owner: String, val method: String, va
         private const val PLAYER_MARKER = "com.xuncorp.voxzen.ui.player.component.lyrics.PlayerLyrics (PlayerLyrics.kt:"
         private const val CONTAINER_MARKER = "com.xuncorp.spc.lyrics.component.LyricsContainer (LyricsContrainer.kt:"
 
-        fun discover(host: File = File(WorkshopApi::class.java.protectionDomain.codeSource.location.toURI())): NativeLyricsTarget {
+        fun discover(host: File = hostArchive(WorkshopApi::class.java)): NativeLyricsTarget {
             require(host.isFile) { "宿主代码不是可读取的 JAR，无法确认原生歌词入口" }
             return JarFile(host).use { jar ->
                 val playerClasses = mutableListOf<ClassReader>()
@@ -68,6 +69,21 @@ internal data class NativeLyricsTarget(val owner: String, val method: String, va
                     }
                 }
             }
+        }
+
+        private fun hostArchive(type: Class<*>): File {
+            val location = type.protectionDomain?.codeSource?.location
+            if (location?.protocol == "file") return File(location.toURI())
+
+            // The host can omit CodeSource locations while retaining a local JAR resource URL.
+            val name = type.name.replace('.', '/') + ".class"
+            val resource = type.getResource("/$name")
+            if (resource?.protocol == "jar") {
+                val archive = (resource.openConnection() as JarURLConnection).jarFileURL
+                if (archive.protocol == "file") return File(archive.toURI())
+            }
+            error("无法定位宿主代码归档：${type.name} " +
+                "(source=${location?.protocol ?: "none"}, resource=${resource?.protocol ?: "none"})")
         }
     }
 }
