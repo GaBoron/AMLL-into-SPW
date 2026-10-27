@@ -26,11 +26,12 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.gaboron.amllspw.poetry.Poem
 
-/** A stationary reading surface: its only playback-independent action is choosing another poem. */
+/** Pure-music presentation with optional poetry; only the reading surface can change the poem. */
 @Composable
 @OptIn(ExperimentalTextApi::class)
 internal fun InstrumentalPoetrySurface(poem: Poem, options: RenderOptions, lyricColor: Int,
@@ -39,18 +40,18 @@ internal fun InstrumentalPoetrySurface(poem: Poem, options: RenderOptions, lyric
     val color = if (options.coloredLyrics) Color(lyricColor) else Color.White
     val footerSections = if (options.hideFooter) emptyList() else footer.sections
     val readingFamily = remember { FontFamily("SimSun") }
-    val density = LocalDensity.current
     BoxWithConstraints(modifier.fillMaxSize().clipToBounds()) {
         val headingSize = options.typography.fontSize(maxWidth.value)
         // Keep the reading scale independent of large lyric-font preferences.
         val readingSize = (maxWidth.value / 21f).coerceIn(18f, 26f)
         val margin = maxWidth * .075f
+        if (options.hidePoetry) {
+            CenteredInstrumental(options, color, headingSize, footerSections,
+                Modifier.fillMaxSize().padding(horizontal = margin))
+            return@BoxWithConstraints
+        }
         Column(Modifier.fillMaxSize().padding(horizontal = margin).padding(top = maxHeight * .08f, bottom = maxHeight * .08f)) {
-            // No pointer, focus, seek callback or click semantics on the heading.
-            BasicText("纯音乐", style = options.typography.textStyle(headingSize).copy(color = color.copy(alpha = .94f)))
-            Spacer(Modifier.height(8.dp))
-            BasicText("INSTRUMENTAL", style = options.typography.textStyle((headingSize * .42f).coerceIn(12f, 18f)).copy(
-                color = color.copy(alpha = .5f), letterSpacing = 1.6.sp))
+            InstrumentalHeading(options, color, headingSize, (headingSize * .42f).coerceIn(12f, 18f))
             Spacer(Modifier.height(24.dp))
             Crossfade(poem, Modifier.weight(1f).fillMaxWidth(),
                 animationSpec = tween(if (options.reducedMotion) 0 else 280), label = "poem") { current ->
@@ -79,22 +80,81 @@ internal fun InstrumentalPoetrySurface(poem: Poem, options: RenderOptions, lyric
                         Spacer(Modifier.height(24.dp))
                         BasicText(current.collection, style = options.typography.textStyle(11f).copy(
                             color = color.copy(alpha = .38f), textAlign = TextAlign.Center))
-                        val footerSize = lyricFooterFontSize(headingSize)
-                        for ((index, section) in footerSections.withIndex()) {
-                            val gap = if (index == 0) 16.dp else with(density) {
-                                (footerSize * lyricFooterGapEm(index, section.attribution)).sp.toDp()
-                            }
-                            Spacer(Modifier.height(gap))
-                            val sectionSize = if (section.attribution) lyricFooterAttributionFontSize(footerSize) else footerSize
-                            BasicText(section.text, modifier = Modifier.fillMaxWidth(),
-                                style = options.typography.textStyle(sectionSize).copy(
-                                    color = color.copy(alpha = .5f * if (section.attribution) FOOTER_ATTRIBUTION_OPACITY else 1f),
-                                    lineHeight = (sectionSize * lyricFooterLineHeight(section.attribution)).sp))
-                        }
+                        InstrumentalFooter(footerSections, options, color, lyricFooterFontSize(headingSize))
                     }
                 }
             }
         }
+    }
+}
+
+/** The title stays at the viewport center; a bounded footer scrolls independently below it. */
+@Composable
+private fun CenteredInstrumental(options: RenderOptions, color: Color, headingSize: Float,
+    footer: List<LyricFooterSection>, modifier: Modifier) {
+    val density = LocalDensity.current
+    val measurer = rememberTextMeasurer()
+    BoxWithConstraints(modifier) {
+        val titleSize = (headingSize * 1.5f).coerceAtLeast(42f)
+        val subtitleSize = (headingSize * .6f).coerceAtLeast(20f)
+        val title = measurer.measure("纯音乐", options.typography.textStyle(titleSize), softWrap = false)
+        val subtitle = measurer.measure("INSTRUMENTAL",
+            options.typography.textStyle(subtitleSize).copy(letterSpacing = 2.4.sp), softWrap = false)
+        val gap = minOf(12.dp, maxHeight * .025f)
+        // Fit both lines together, including font scaling. Reserve the lower region for
+        // external information without letting a long footer move or overlap the title.
+        val scale = with(density) {
+            val widthScale = maxWidth.toPx() / maxOf(title.size.width, subtitle.size.width).coerceAtLeast(1)
+            val heightScale = (maxHeight.toPx() * .4f - gap.toPx()) /
+                (title.size.height + subtitle.size.height).coerceAtLeast(1)
+            minOf(1f, widthScale, heightScale.coerceAtLeast(0f))
+        }
+        InstrumentalHeading(options, color, titleSize * scale, subtitleSize * scale,
+            Modifier.align(Alignment.Center), centered = true, gap = gap, letterSpacing = 2.4f * scale)
+        if (footer.isNotEmpty()) {
+            val footerHeight = maxHeight * .22f
+            val footerSize = minOf(lyricFooterFontSize(headingSize), with(density) {
+                footerHeight.toSp().value / 1.6f
+            }).coerceAtLeast(1f)
+            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = maxHeight * .06f)
+                .heightIn(max = footerHeight).verticalScroll(rememberScrollState())) {
+                InstrumentalFooter(footer, options, color, footerSize, leadingGap = false)
+            }
+        }
+    }
+}
+
+@Composable
+private fun InstrumentalHeading(options: RenderOptions, color: Color, titleSize: Float, subtitleSize: Float,
+    modifier: Modifier = Modifier, centered: Boolean = false, gap: Dp = 8.dp,
+    letterSpacing: Float = 1.6f) {
+    // Headings carry no pointer, focus, seek callback or poem-change semantics.
+    val alignment = if (centered) TextAlign.Center else TextAlign.Left
+    Column(modifier.fillMaxWidth()) {
+        BasicText("纯音乐", Modifier.fillMaxWidth(), style = options.typography.textStyle(titleSize).copy(
+            color = color.copy(alpha = .94f), textAlign = alignment))
+        Spacer(Modifier.height(gap))
+        BasicText("INSTRUMENTAL", Modifier.fillMaxWidth(), style = options.typography.textStyle(subtitleSize).copy(
+            color = color.copy(alpha = .5f), textAlign = alignment, letterSpacing = letterSpacing.sp))
+    }
+}
+
+@Composable
+private fun InstrumentalFooter(sections: List<LyricFooterSection>, options: RenderOptions, color: Color,
+    footerSize: Float, leadingGap: Boolean = true) {
+    val density = LocalDensity.current
+    for ((index, section) in sections.withIndex()) {
+        val gap = when {
+            index == 0 && leadingGap -> 16.dp
+            index == 0 -> 0.dp
+            else -> with(density) { (footerSize * lyricFooterGapEm(index, section.attribution)).sp.toDp() }
+        }
+        Spacer(Modifier.height(gap))
+        val sectionSize = if (section.attribution) lyricFooterAttributionFontSize(footerSize) else footerSize
+        BasicText(section.text, modifier = Modifier.fillMaxWidth(),
+            style = options.typography.textStyle(sectionSize).copy(
+                color = color.copy(alpha = .5f * if (section.attribution) FOOTER_ATTRIBUTION_OPACITY else 1f),
+                lineHeight = (sectionSize * lyricFooterLineHeight(section.attribution)).sp))
     }
 }
 
