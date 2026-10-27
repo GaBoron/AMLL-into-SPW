@@ -1,19 +1,8 @@
 package io.github.gaboron.amllspw.romanization
 
-import io.github.gaboron.amllspw.lyrics.LyricLine
-
-/** The host flattens LRC translation and romanization tracks into the same secondary text. */
+/** Checks supplied Japanese readings without enabling generated display annotations. */
 internal object HostRomanization {
-    fun extract(line: LyricLine, readings: List<JapaneseReading>): LyricLine {
-        if (line.romanization.isNotBlank()) return line
-        val secondary = line.translation.lines()
-        val supplied = secondary.filter { matches(line.text, readings, it) }.distinct()
-        if (supplied.size != 1) return line
-        return line.copy(romanization = supplied.single(),
-            translation = secondary.filterNot { it == supplied.single() }.joinToString("\n"))
-    }
-
-    private fun matches(text: String, readings: List<JapaneseReading>, value: String): Boolean {
+    fun matches(text: String, readings: List<JapaneseReading>, value: String): Boolean {
         if (value.none { it in 'a'..'z' || it in 'A'..'Z' } || value.any {
                 when (Character.UnicodeScript.of(it.code)) {
                     Character.UnicodeScript.HAN, Character.UnicodeScript.HIRAGANA,

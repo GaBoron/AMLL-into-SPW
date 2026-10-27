@@ -12,6 +12,7 @@ import io.github.gaboron.amllspw.ui.LyricsPresentation
 import io.github.gaboron.amllspw.poetry.PoetryCatalog
 import io.github.gaboron.amllspw.poetry.TrackPoems
 import io.github.gaboron.amllspw.romanization.JapaneseAnnotations
+import io.github.gaboron.amllspw.romanization.JapaneseReadings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.nio.file.Path
@@ -26,7 +27,9 @@ internal class AmllRuntime : AutoCloseable {
     val presentation = mutablePresentation.asStateFlow()
     val clock = PlaybackClock()
     private val local = LocalLyricsReader()
-    private val annotations = JapaneseAnnotations()
+    private val readings = JapaneseReadings()
+    private val hostLyrics = HostLyricsAdapter(HostSecondaryLyrics(readings))
+    private val annotations = JapaneseAnnotations(readings)
     private val inbox = TtmlInbox()
     private val footerInbox = FooterInbox(::currentIdentity)
     private val poems by lazy { TrackPoems(PoetryCatalog.load()) }
@@ -139,7 +142,7 @@ internal class AmllRuntime : AutoCloseable {
             clear(); return
         }
         val received = inbox.current(TrackIdentity(media.id, media.path))
-        val original = localDocument ?: received?.document ?: HostLyricsAdapter.convert(WorkshopApi.playback.getLyricsLines())
+        val original = localDocument ?: received?.document ?: hostLyrics.convert(WorkshopApi.playback.getLyricsLines())
         val options = preferences.options.value
         val document = annotations.apply(original, options.automaticJapaneseRuby && options.romanization)
         val offset = if (localDocument != null) 0 else received?.offsetMs ?: 0

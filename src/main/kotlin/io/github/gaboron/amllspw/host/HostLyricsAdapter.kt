@@ -6,7 +6,7 @@ import io.github.gaboron.amllspw.lyrics.LyricLine
 import io.github.gaboron.amllspw.lyrics.LyricWord
 
 /** Uses the host's SPL/LRC decoder; only information actually present is carried into TTML. */
-internal object HostLyricsAdapter {
+internal class HostLyricsAdapter(private val secondary: HostSecondaryLyrics = HostSecondaryLyrics()) {
     fun convert(source: List<HostLine>): LyricDocument {
         val sourceCells = source.map { line ->
             // Instant separators/punctuation are still source text. Dropping them would
@@ -19,7 +19,7 @@ internal object HostLyricsAdapter {
         // SPW also represents ordinary LRC as one cell per row. Use the whole song to
         // distinguish it from word-timed lyrics, where a row can contain one syllable.
         val hasWordTiming = sourceCells.any { cells -> cells.count { it.text.isNotBlank() } > 1 }
-        return LyricDocument(source.mapIndexedNotNull { index, line ->
+        val lines = source.mapIndexedNotNull { index, line ->
             if (line.pureMainText.isBlank()) return@mapIndexedNotNull null
             val start = line.startTime.coerceAtLeast(0)
             val end = line.endTime.takeIf { it > start }
@@ -29,6 +29,7 @@ internal object HostLyricsAdapter {
                 cells.map { LyricWord(it.text, it.startTime, it.endTime) }
             else listOf(LyricWord(line.pureMainText, start, end, timed = false))
             LyricLine(start, end, words, translation = line.pureSubText.orEmpty(), group = index)
-        }.sortedBy { it.startMs }, LyricDocument.Origin.HOST)
+        }.sortedBy { it.startMs }
+        return LyricDocument(secondary.split(lines), LyricDocument.Origin.HOST)
     }
 }
