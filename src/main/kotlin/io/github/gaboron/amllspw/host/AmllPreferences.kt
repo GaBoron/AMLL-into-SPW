@@ -27,6 +27,7 @@ internal class AmllPreferences : AutoCloseable {
     private fun decode(c: ConfigHelper) = RenderOptions(
         blur = c.get("blur", true), scale = c.get("scale", true), glow = c.get("glow", true),
         spring = c.get("spring", true), hidePassed = c.get("hide_passed", false),
+        hideFooter = c.get("hide_footer", false),
         romanization = c.get("romanization", true), reducedMotion = c.get("reduced_motion", false),
         automaticJapaneseRuby = c.get("automatic_japanese_ruby", false),
         coloredLyrics = c.get("colored_lyrics", false),

@@ -37,6 +37,7 @@ internal fun InstrumentalPoetrySurface(poem: Poem, options: RenderOptions, lyric
     modifier: Modifier, footer: LyricFooterContent = LyricFooterContent(), onNextPoem: () -> Unit) {
     val nextPoem by rememberUpdatedState(onNextPoem)
     val color = if (options.coloredLyrics) Color(lyricColor) else Color.White
+    val footerSections = if (options.hideFooter) emptyList() else footer.sections
     val readingFamily = remember { FontFamily("SimSun") }
     val density = LocalDensity.current
     BoxWithConstraints(modifier.fillMaxSize().clipToBounds()) {
@@ -79,7 +80,7 @@ internal fun InstrumentalPoetrySurface(poem: Poem, options: RenderOptions, lyric
                         BasicText(current.collection, style = options.typography.textStyle(11f).copy(
                             color = color.copy(alpha = .38f), textAlign = TextAlign.Center))
                         val footerSize = lyricFooterFontSize(headingSize)
-                        for ((index, section) in footer.sections.withIndex()) {
+                        for ((index, section) in footerSections.withIndex()) {
                             val gap = if (index == 0) 16.dp else with(density) {
                                 (footerSize * lyricFooterGapEm(index, section.attribution)).sp.toDp()
                             }

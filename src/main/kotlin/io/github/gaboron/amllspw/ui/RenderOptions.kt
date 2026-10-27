@@ -7,6 +7,7 @@ internal data class RenderOptions(
     val spring: Boolean = true,
     val background: Boolean = false,
     val hidePassed: Boolean = false,
+    val hideFooter: Boolean = false,
     val romanization: Boolean = true,
     val automaticJapaneseRuby: Boolean = false,
     val reducedMotion: Boolean = false,
