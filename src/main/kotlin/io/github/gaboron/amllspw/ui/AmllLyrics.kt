@@ -48,7 +48,12 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
     val clock = remember(presentation.trackKey, presentation.document, presentation.offsetMs) { FramePlaybackClock() }
     val density = LocalDensity.current
     var frameTime by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(Unit) { while (true) withFrameNanos { frameTime = it } }
+    LaunchedEffect(pointer) {
+        while (true) withFrameNanos {
+            pointer.expireHover()
+            frameTime = it
+        }
+    }
     val cache = remember(presentation.document, density, showSecondary, options.romanization, options.typography) { LayoutCache() }
     val lyricColor = if (options.coloredLyrics) Color(presentation.lyricColor) else Color.White
     val scroll = rememberScrollableState { delta -> viewport.scroll(delta); delta }
