@@ -23,6 +23,7 @@ internal class AmllPreferences : AutoCloseable {
     private var generation = 0L
     private var closed = false
     private var lastFontFailure: String? = null
+    private var requestedFontPath = ""
     @Volatile var onAnnotationChange: (() -> Unit)? = null
     private val listener = Consumer<ConfigHelper>(::refresh)
     init {
@@ -43,11 +44,19 @@ internal class AmllPreferences : AutoCloseable {
         synchronized(gate) {
             if (closed) return
             previous = mutable.value
+            val hadFont = requestedFontPath.isNotBlank()
+            requestedFontPath = path
             val request = ++generation
             mutable.value = next.copy(typography = next.typography.copy(
                 customFont = previous.typography.customFont.takeIf { path.isNotBlank() }))
-            if (path.isBlank()) lastFontFailure = null
+            if (path.isBlank()) {
+                lastFontFailure = null
+                if (hadFont) fontWorker.execute {
+                    if (synchronized(gate) { !closed && generation == request }) fontLoader.clear()
+                }
+            }
             if (path.isNotBlank()) fontWorker.execute {
+                if (synchronized(gate) { closed || generation != request }) return@execute
                 val loaded = runCatching { fontLoader.load(Path.of(path), next.typography.weight) }
                 var warning: String? = null
                 synchronized(gate) {
@@ -71,10 +80,15 @@ internal class AmllPreferences : AutoCloseable {
     }
 
     override fun close() {
-        synchronized(gate) { closed = true; generation++ }
+        synchronized(gate) {
+            if (closed) return
+            closed = true
+            generation++
+        }
         onAnnotationChange = null
         manager.removeConfigChangeListener(listener)
-        fontWorker.shutdownNow()
+        fontWorker.execute { fontLoader.close() }
+        fontWorker.shutdown()
     }
     private fun decode(c: ConfigHelper) = RenderOptions(
         blur = c.get("blur", true), scale = c.get("scale", true), glow = c.get("glow", true),

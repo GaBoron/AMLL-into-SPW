@@ -38,9 +38,9 @@ object FontSettingsActions {
                 config.reload()
                 val weight = LyricFontWeight.fromPreference(config.get("font_weight", LyricFontWeight.DEFAULT.value))
                 // Validate with the same renderer before changing the saved selection.
-                val font = CustomLyricFontLoader().load(selected, weight)
+                val name = CustomLyricFontLoader().use { it.fontName(selected, weight) }
                 saveSelection(selected.toAbsolutePath().normalize().toString())
-                WorkshopApi.ui.toast("已选择歌词字体：${font.name}", WorkshopApi.Ui.ToastType.Success)
+                WorkshopApi.ui.toast("已选择歌词字体：$name", WorkshopApi.Ui.ToastType.Success)
             }
         }
     }
