@@ -1,6 +1,8 @@
 @file:OptIn(com.xuncorp.spw.workshop.api.UnstableSpwWorkshopApi::class)
 package io.github.gaboron.amllspw.host
 
+import androidx.compose.ui.awt.ComposeDialog
+import androidx.compose.ui.awt.ComposeWindow
 import com.xuncorp.spw.workshop.api.WorkshopApi
 import io.github.gaboron.amllspw.ui.CustomLyricFontLoader
 import io.github.gaboron.amllspw.ui.LyricFontWeight
@@ -22,18 +24,28 @@ object FontSettingsActions {
     fun chooseFont() {
         if (!busy.compareAndSet(false, true)) return
         EventQueue.invokeLater {
-            val selected = try {
-                chooseFile()
+            val owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().activeWindow
+            val windows = System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
+            // Read Compose's HWND on the event thread; the native modal runs in its own COM apartment.
+            val ownerHandle = try {
+                when (owner) {
+                    is ComposeWindow -> owner.windowHandle
+                    is ComposeDialog -> owner.windowHandle
+                    else -> 0L
+                }
             } catch (failure: Exception) {
                 reportFailure(failure)
                 busy.set(false)
                 return@invokeLater
             }
-            if (selected == null) {
-                busy.set(false)
-                return@invokeLater
-            }
             runInBackground {
+                val selected = if (windows) {
+                    WindowsFontFileDialog.choose(ownerHandle, initialDirectory())
+                } else {
+                    var result: Path? = null
+                    EventQueue.invokeAndWait { result = chooseFile() }
+                    result
+                } ?: return@runInBackground
                 val config = WorkshopApi.manager.createConfigManager().getConfig(AmllPreferences.FILE)
                 config.reload()
                 val weight = LyricFontWeight.fromPreference(config.get("font_weight", LyricFontWeight.DEFAULT.value))
