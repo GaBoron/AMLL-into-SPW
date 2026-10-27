@@ -4,10 +4,20 @@
     "config": "amll.json",
     "preferences": [
       {
+        "type": "button", "title": "选择歌词字体文件…", "arrow_type": "none",
+        "summary": "打开系统文件选择框，选择 TTF、OTF、TTC 或 OTC 字体。默认使用内置思源黑体 SC。",
+        "on_click": "io.github.gaboron.amllspw.host.FontSettingsActions.chooseFont"
+      },
+      {
+        "type": "button", "title": "恢复内置歌词字体", "arrow_type": "none",
+        "summary": "恢复思源黑体 SC，保留字重和字号设置。",
+        "on_click": "io.github.gaboron.amllspw.host.FontSettingsActions.restoreDefault"
+      },
+      {
         "type": "list", "key": "font_weight", "title": "歌词字重",
         "entries": ["特细 ExtraLight", "细体 Light", "常规 Regular", "中等 Medium", "粗体 Bold", "特粗 Heavy"],
         "entry_values": ["200", "300", "400", "500", "700", "900"],
-        "default_value": "500", "summary": "使用内置思源黑体 SC，默认中等 500，最粗 900；同时应用于歌词、翻译和注音，缺少的字符回退到系统字体。"
+        "default_value": "500", "summary": "默认中等 500，最粗 900。自定义字体按实际可用字重匹配；同时应用于歌词、翻译和注音，缺少的字符回退到系统字体。"
       },
       {
         "type": "list", "key": "font_size", "title": "歌词字号",

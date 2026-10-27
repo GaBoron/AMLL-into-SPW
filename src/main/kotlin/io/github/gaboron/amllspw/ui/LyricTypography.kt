@@ -3,6 +3,7 @@ package io.github.gaboron.amllspw.ui
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontSynthesis
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
@@ -28,13 +29,15 @@ internal enum class LyricFontWeight(val value: String, weight: Int = value.toInt
 internal data class LyricTypography(
     val weight: LyricFontWeight = LyricFontWeight.DEFAULT,
     val fontSizeSp: Int? = null,
+    val customFont: CustomLyricFont? = null,
 ) {
     fun fontSize(viewportWidthDp: Float): Float =
         fontSizeSp?.toFloat() ?: (viewportWidthDp / 13.5f).coerceIn(24f, 42f)
 
     fun textStyle(sizeSp: Float) = TextStyle(
-        fontFamily = weight.family,
-        fontWeight = weight.fontWeight,
+        fontFamily = customFont?.family ?: weight.family,
+        fontWeight = customFont?.weight ?: weight.fontWeight,
+        fontStyle = customFont?.style ?: FontStyle.Normal,
         fontSynthesis = FontSynthesis.None,
         fontSize = sizeSp.sp,
     )
