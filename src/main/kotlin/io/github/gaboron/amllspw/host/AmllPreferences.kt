@@ -15,6 +15,7 @@ import java.util.function.Consumer
 
 internal class AmllPreferences : AutoCloseable {
     private val manager = WorkshopApi.manager.createConfigManager()
+    private val fontSettings = LyricFontSettings(manager)
     private val mutable = MutableStateFlow(decode(manager.getConfig(FILE)))
     val options = mutable.asStateFlow()
     private val fontLoader = CustomLyricFontLoader()
@@ -25,7 +26,7 @@ internal class AmllPreferences : AutoCloseable {
     private var lastFontFailure: String? = null
     private var requestedFontPath = ""
     @Volatile var onAnnotationChange: (() -> Unit)? = null
-    private val listener = Consumer<ConfigHelper>(::refresh)
+    private val listener = Consumer<ConfigHelper> { if (it.reload()) refresh(it) }
     init {
         manager.addConfigChangeListener(FILE, listener)
         refresh(manager.getConfig(FILE))
@@ -33,17 +34,21 @@ internal class AmllPreferences : AutoCloseable {
 
     fun reload() {
         val config = manager.getConfig(FILE)
-        config.reload()
-        refresh(config)
+        if (config.reload()) refresh(config)
     }
 
     private fun refresh(config: ConfigHelper) {
         val next = decode(config)
-        val path = config.get(FONT_FILE, "")
         val previous: RenderOptions
         synchronized(gate) {
             if (closed) return
             previous = mutable.value
+            val path = try {
+                fontSettings.read()
+            } catch (failure: Exception) {
+                System.err.println("AMLL: 字体设置读取失败，保留当前字体：${failure.message}")
+                requestedFontPath
+            }
             val hadFont = requestedFontPath.isNotBlank()
             requestedFontPath = path
             val request = ++generation
@@ -103,6 +108,5 @@ internal class AmllPreferences : AutoCloseable {
     )
     companion object {
         internal const val FILE = "amll.json"
-        internal const val FONT_FILE = "custom_font_path"
     }
 }

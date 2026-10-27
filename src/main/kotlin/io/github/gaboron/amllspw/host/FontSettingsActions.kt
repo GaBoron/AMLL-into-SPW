@@ -75,16 +75,7 @@ object FontSettingsActions {
     }
 
     private fun saveSelection(path: String) {
-        val config = WorkshopApi.manager.createConfigManager().getConfig(AmllPreferences.FILE)
-        config.reload()
-        val previous = config.get(AmllPreferences.FONT_FILE, "")
-        config.set(AmllPreferences.FONT_FILE, path)
-        try {
-            check(config.save()) { "字体设置保存失败" }
-        } catch (failure: Exception) {
-            config.set(AmllPreferences.FONT_FILE, previous)
-            throw failure
-        }
+        LyricFontSettings(WorkshopApi.manager.createConfigManager()).save(path)
         AmllPlugin.current?.preferences?.reload()
     }
 
