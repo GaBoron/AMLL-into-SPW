@@ -1,6 +1,8 @@
 # 原始 TTML 接入指南
 
-AMLL into SPW 向歌词提供插件开放进程内 TTML 接口。发送端可在完成本地读取、缓存命中或在线获取后直接提交原始 XML，保留演唱者、背景人声、翻译、音译和注音。本文提供通用接入模板，末尾以已完成接入的 SPW Lyrics 为例。
+[← 返回 README](../README.md)
+
+AMLL into SPW 向歌词插件提供进程内 TTML 接口。发送端可提交原始 XML，保留演唱者、背景人声、翻译、音译和注音。
 
 接口通过 JVM 平台 MBeanServer 发现，跨 PF4J 类加载器工作，不需要依赖对方的 JAR，也不启动网络服务。仅在 AMLL into SPW 启用期间注册。
 
@@ -76,8 +78,4 @@ public final class TtmlClient {
 
 [SPW Lyrics](https://github.com/GaBoron/SPW-Lyrics) 已实现协议 1，无需额外依赖对方的 JAR。双方启用后会自动协商原始 TTML 输出。
 
-- [JMX 接收器适配](https://github.com/GaBoron/SPW-Lyrics/blob/main/src/main/kotlin/dev/gaboron/spwlyrics/integration/JmxTtmlReceiver.kt) 负责检测版本与启用状态、提交和撤回，并监听注册变化以识别接收器重启。
-- [歌词输出路由](https://github.com/GaBoron/SPW-Lyrics/blob/main/src/main/kotlin/dev/gaboron/spwlyrics/application/LyricsOutputRouter.kt) 汇总原始 TTML、缓存和单曲偏移，以歌曲身份和选择版本过滤迟到结果，并通过后台队列及周期检测处理重新接入。
-- 原始 TTML 用于 AMLL 显示，同时保留普通宿主歌词时间轴；原始 XML 随歌词缓存保存。自动获取、手动选择和后续更新共用输出入口。
-
-其他插件可以复用上述接入方式，并保留自己的歌词来源、缓存和选择逻辑。
+接入示例可参考 [JMX 接收器适配](https://github.com/GaBoron/SPW-Lyrics/blob/main/src/main/kotlin/dev/gaboron/spwlyrics/integration/JmxTtmlReceiver.kt)和[歌词输出路由](https://github.com/GaBoron/SPW-Lyrics/blob/main/src/main/kotlin/dev/gaboron/spwlyrics/application/LyricsOutputRouter.kt)。
