@@ -7,8 +7,8 @@ import kotlin.math.pow
 
 /** Dominant artwork hue families and a bright lyric accent for the playback background. */
 internal object CoverLyricColor {
-    private const val MAX_SATURATION = .26f
-    private const val MIN_LUMINANCE = .82
+    private const val MAX_SATURATION = .42f
+    private const val MIN_LUMINANCE = .55
 
     fun dominant(image: BufferedImage): Int? {
         val families = Array(12) { Accumulator() }
@@ -38,8 +38,8 @@ internal object CoverLyricColor {
         val saturation = hsb[1].coerceAtMost(MAX_SATURATION)
         fun bright(value: Float) = Color.getHSBColor(hsb[0], value, 1f)
         val preferred = bright(saturation)
-        // Full HSB brightness can still look dim in blue/purple. Keep the artwork hue,
-        // but reduce saturation until the text has enough perceptual brightness.
+        // Give dark blue/purple enough luminance while keeping a distinct artwork tint.
+        // The renderer supplies local contrast instead of pushing every hue toward white.
         if (luminance(preferred) >= MIN_LUMINANCE) return preferred.rgb
         var low = 0f
         var high = saturation
