@@ -11,6 +11,7 @@ import kotlin.math.sqrt
 internal class ViewportMotion {
     data class VoiceMotion(val scale: SpringMotion = SpringMotion(1f), val opacity: SpringMotion = SpringMotion(1f),
         val highlight: ActivationEnvelope = ActivationEnvelope(),
+        val blur: LyricBlurMotion = LyricBlurMotion(),
         val visibility: ActivationEnvelope = ActivationEnvelope(1f, .4f, .4f, CubicBezier(.25f, .1f, .25f, 1f)),
         val hover: ActivationEnvelope = ActivationEnvelope(0f, .25f, .25f, CubicBezier(.25f, .1f, .25f, 1f)))
     data class RowMotion(val y: SpringMotion, val voices: List<VoiceMotion>, val scale: SpringMotion = SpringMotion(.97f, 90f, 18f),
@@ -152,6 +153,7 @@ internal class ViewportMotion {
                 val voiceScale = if (line.background && !active[index]) .75f else 1f
                 val opacity = if (!line.background) 1f else if (row.expanded) .4f else 0f
                 voice.highlight.update(active[index], dt, first || seek || immediate)
+                voice.blur.update(abs(index - motionFocus), active[index] || manual, dt, first || seek || immediate)
                 voice.visibility.update(!hidePassed || timeMs < groups[index].rows.maxOf { it.line.endMs }, dt, first || seek || immediate)
                 if (first || seek || immediate) { voice.scale.snap(voiceScale); voice.opacity.snap(opacity) }
                 else { voice.scale.update(voiceScale, dt); voice.opacity.update(opacity, dt) }

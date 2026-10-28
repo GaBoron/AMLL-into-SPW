@@ -11,20 +11,19 @@ import kotlin.math.roundToInt
 
 internal class LyricLinePainter(private val measurer: TextMeasurer) : AutoCloseable {
     private var closed = false
-    // Cache native resources instead of allocating blur layers/filters for every animation frame.
-    private val blurPaints = (0..4).map { level -> Paint().apply {
-        if (level > 0) ImageFilter.makeBlur(level * .6f, level * .6f, FilterTileMode.DECAL).use { imageFilter = it }
-    } }
-    private val contrastPaints = mutableMapOf<Int, Paint>()
+    private data class EffectKey(val blur: Int, val contrast: Int)
+    // Quantized radius keys bound the cache and combine contrast/depth into one native layer.
+    private val effectPaints = mutableMapOf<EffectKey, Paint>()
     private val words = WordHighlightPainter()
     private val ruby = LyricRubyPainter()
 
-    fun DrawScope.paintLine(layout: LineLayout, positionMs: Long, active: Boolean, distance: Int, manual: Boolean, options: RenderOptions, highlight: Float = if (active) 1f else 0f, color: Color = Color.White) {
+    fun DrawScope.paintLine(layout: LineLayout, positionMs: Long, active: Boolean, distance: Int, manual: Boolean, options: RenderOptions,
+        highlight: Float = if (active) 1f else 0f, color: Color = Color.White,
+        blurRadius: Float = lyricBlurRadius(distance) * (1f - highlight)) {
         val native = drawContext.canvas.skiaCanvas
-        val blur = if (active || manual || !options.blur || options.reducedMotion) 0 else distance.coerceIn(0, 4)
-        val contrast = if (options.coloredLyrics && highlight > .001f) contrastPaint(layout.emPx) else null
-        if (blur > 0) native.saveLayer(layout.layerBounds, blurPaints[blur])
-        if (contrast != null) native.saveLayer(layout.layerBounds, contrast)
+        val blur = if (manual || !options.blur || options.reducedMotion) 0f else blurRadius
+        val effect = effectPaint(blur, layout.emPx, options.coloredLyrics)
+        if (effect != null) native.saveLayer(layout.layerBounds, effect)
         try {
             layout.upperRomanization?.let { with(ruby) { paintUpper(it, layout.emPx, highlight, color) } }
             translate(top = layout.rubyHeight) {
@@ -32,8 +31,13 @@ internal class LyricLinePainter(private val measurer: TextMeasurer) : AutoClosea
                     with(words) { paintBloom(layout, highlight, options, color) }
                     drawText(layout.main, color = color, alpha = .2f + .8f * highlight)
                 } else {
+                    // Atlas sampling and direct text have slightly different antialiasing.
+                    // Blend their last frames instead of changing rasterization at one threshold.
+                    val wordOpacity = (highlight / .15f).coerceIn(0f, 1f)
+                    if (wordOpacity < 1f)
+                        drawText(layout.main, color = color, alpha = (.2f + .8f * highlight) * (1f - wordOpacity))
                     for (region in layout.words) {
-                        with(words) { paint(layout, region, positionMs, highlight, options, color) }
+                        with(words) { paint(layout, region, positionMs, highlight, options, color, wordOpacity) }
                     }
                 }
                 if (options.romanization) with(ruby) { paintRuby(layout, positionMs, highlight, options, color) }
@@ -44,20 +48,28 @@ internal class LyricLinePainter(private val measurer: TextMeasurer) : AutoClosea
                 }
             }
         } finally {
-            if (contrast != null) native.restore()
-            if (blur > 0) native.restore()
+            if (effect != null) native.restore()
         }
     }
 
-    private fun contrastPaint(emPx: Float): Paint {
-        val radius = (emPx * .035f).roundToInt().coerceIn(1, 8)
-        return contrastPaints.getOrPut(radius) { Paint().apply {
-            // A narrow dark shadow separates the complete shaped row from the background
-            // without changing its fill color, timing masks or glyph motion.
-            ImageFilter.makeDropShadow(0f, radius * .5f, radius.toFloat(), radius.toFloat(), 0x66000000).use {
-                imageFilter = it
+    private fun effectPaint(blur: Float, emPx: Float, colored: Boolean): Paint? {
+        val level = (blur.coerceIn(0f, MAX_LYRIC_BLUR_RADIUS) * 4).roundToInt()
+        val radius = if (colored) (emPx * .065f).roundToInt().coerceIn(1, 8) else 0
+        if (level == 0 && radius == 0) return null
+        return effectPaints.getOrPut(EffectKey(level, radius)) {
+            // The same faint, centered shadow follows every colored row's own opacity.
+            // It never switches at an activation threshold or creates a raised edge.
+            val shadow = if (radius > 0) ImageFilter.makeDropShadow(0f, 0f,
+                radius.toFloat(), radius.toFloat(), 0x26000000) else null
+            try {
+                if (level == 0) Paint().apply { imageFilter = shadow }
+                else ImageFilter.makeBlur(level * .25f, level * .25f, FilterTileMode.DECAL, shadow).use {
+                    Paint().apply { imageFilter = it }
+                }
+            } finally {
+                shadow?.close()
             }
-        } }
+        }
     }
 
     fun clearTextCache() { words.clearTextCache(); ruby.clear() }
@@ -66,7 +78,6 @@ internal class LyricLinePainter(private val measurer: TextMeasurer) : AutoClosea
         closed = true
         words.close()
         ruby.close()
-        blurPaints.forEach { it.close() }
-        contrastPaints.values.forEach { it.close() }
+        effectPaints.values.forEach { it.close() }
     }
 }

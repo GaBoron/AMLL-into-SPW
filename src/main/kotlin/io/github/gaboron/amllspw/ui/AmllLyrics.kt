@@ -155,7 +155,8 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
                     val native = drawContext.canvas.skiaCanvas
                     val paint = if (edgeAlpha < .999f) org.jetbrains.skia.Paint().apply { alpha = (edgeAlpha * 255).toInt() } else null
                     if (paint != null) native.saveLayer(row.layerBounds, paint)
-                    try { with(painter) { paintLine(row, position, groupActive, abs(index - frame.focus), manual, options, voice.highlight.value, lyricColor) } }
+                    try { with(painter) { paintLine(row, position, groupActive, abs(index - frame.focus), manual, options,
+                        voice.highlight.value, lyricColor, voice.blur.radius) } }
                     finally { if (paint != null) { native.restore(); paint.close() } }
                 }
                 hits += ViewportMotion.Hit(bounds, row.line.startMs)

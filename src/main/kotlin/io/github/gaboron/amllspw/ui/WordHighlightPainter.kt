@@ -20,7 +20,8 @@ internal class WordHighlightPainter : AutoCloseable {
     private var tint = Color.White.toArgb()
     private var tintFilter: org.jetbrains.skia.ColorFilter? = null
 
-    fun DrawScope.paint(layout: LineLayout, region: WordRegion, timeMs: Long, highlight: Float, options: RenderOptions, color: Color = Color.White) {
+    fun DrawScope.paint(layout: LineLayout, region: WordRegion, timeMs: Long, highlight: Float, options: RenderOptions,
+        color: Color = Color.White, opacity: Float = 1f) {
         updateTint(color.toArgb())
         val word = region.word
         val progress = WordAnimation.progress(word, timeMs)
@@ -68,13 +69,13 @@ internal class WordHighlightPainter : AutoCloseable {
                         val emphasis = if (bloom > 0f) (animation.glow / bloom).coerceIn(0f, 1f) else 1f
                         val radiusEm = BLOOM_RADIUS_EM + (animation.blurEm - BLOOM_RADIUS_EM) * emphasis
                         val radius = (radiusEm * layout.emPx).roundToInt().coerceIn(1, 24)
-                        paintGlow(texture, source, target, strength * highlight, radius)
+                        paintGlow(texture, source, target, strength * highlight * opacity, radius)
                     }
                 }
-                imagePaint.alpha = ((.2f + .2f * highlight) * 255).roundToInt()
+                imagePaint.alpha = ((.2f + .2f * highlight) * opacity * 255).roundToInt()
                 native.drawImageRect(texture.image, source, target, SamplingMode.LINEAR, imagePaint, true)
                 if (progress > 0 && highlight > 0) {
-                    imagePaint.alpha = (highlight * 255).roundToInt()
+                    imagePaint.alpha = (highlight * opacity * 255).roundToInt()
                     val fullyLit = if (region.rightToLeft) edgeX + fadeWidth / 2 <= rect.left else edgeX - fadeWidth / 2 >= rect.right
                     val unlit = if (region.rightToLeft) edgeX - fadeWidth / 2 >= rect.right else edgeX + fadeWidth / 2 <= rect.left
                     if (!unlit) {

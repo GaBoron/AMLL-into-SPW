@@ -33,8 +33,9 @@ internal data class LineLayout(
     val upperRomanization: TextLayoutResult? = null,
 ) {
     // Include word float/glow and secondary text, while avoiding a viewport-sized layer per row.
-    val layerBounds = org.jetbrains.skia.Rect.makeLTRB(-emPx * 1.5f, -emPx * 1.5f,
-        main.size.width + emPx * 1.5f, height + emPx * 1.5f)
+    private val effectPadding = maxOf(emPx * 1.5f, MAX_LYRIC_BLUR_RADIUS * 3f)
+    val layerBounds = org.jetbrains.skia.Rect.makeLTRB(-effectPadding, -effectPadding,
+        main.size.width + effectPadding, height + effectPadding)
 }
 internal data class GroupLayout(val rows: List<LineLayout>, val top: Float, val height: Float)
 
