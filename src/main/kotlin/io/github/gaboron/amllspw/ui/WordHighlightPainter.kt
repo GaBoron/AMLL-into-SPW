@@ -8,13 +8,22 @@ import org.jetbrains.skia.FilterTileMode
 import org.jetbrains.skia.ImageFilter
 import org.jetbrains.skia.Paint
 import org.jetbrains.skia.SamplingMode
+import org.jetbrains.skia.Image
+import org.jetbrains.skia.Surface
 import org.jetbrains.skia.Rect as SkiaRect
+import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.roundToInt
 
 /** Word masking, grapheme float and long-tone emphasis share the same shaped text layout. */
 internal class WordHighlightPainter : AutoCloseable {
     private var closed = false
     private val glowPaints = mutableMapOf<Int, Paint>()
+    private data class GlowKey(val text: androidx.compose.ui.text.TextLayoutResult, val source: SkiaRect, val target: SkiaRect, val radius: Int)
+    private data class GlowTexture(val image: Image, val bounds: SkiaRect, val bytes: Int)
+    private val glowTextures = LinkedHashMap<GlowKey, GlowTexture>(64, .75f, true)
+    private var glowBytes = 0
+    private val glowMaskPaint = Paint()
     private val atlas = GlyphAtlas()
     private val imagePaint = Paint()
     private var tint = Color.White.toArgb()
@@ -110,20 +119,52 @@ internal class WordHighlightPainter : AutoCloseable {
     }
 
     private fun DrawScope.paintGlow(texture: GlyphAtlas.Entry, source: SkiaRect, target: SkiaRect, opacity: Float, radius: Int) {
-        val native = drawContext.canvas.skiaCanvas
+        val key = GlowKey(texture.text, source, target, radius)
+        val glow = glowTextures[key] ?: createGlow(texture, source, target, radius).also {
+            glowTextures[key] = it
+            glowBytes += it.bytes
+            val entries = glowTextures.entries.iterator()
+            while ((glowTextures.size > 128 || glowBytes > 8 * 1024 * 1024) && glowTextures.size > 1) {
+                val old = entries.next().value
+                entries.remove()
+                glowBytes -= old.bytes
+                old.image.close()
+            }
+        }
+        imagePaint.alpha = (opacity * 255).roundToInt().coerceIn(0, 255)
+        drawContext.canvas.skiaCanvas.drawImageRect(glow.image,
+            SkiaRect.makeWH(glow.image.width.toFloat(), glow.image.height.toFloat()), glow.bounds,
+            SamplingMode.LINEAR, imagePaint, true)
+    }
+
+    private fun createGlow(texture: GlyphAtlas.Entry, source: SkiaRect, target: SkiaRect, radius: Int): GlowTexture {
+        val padding = radius * 3f
+        val bounds = SkiaRect.makeLTRB(floor(target.left - padding), floor(target.top - padding),
+            ceil(target.right + padding), ceil(target.bottom + padding))
+        val width = bounds.width.toInt().coerceAtLeast(1)
+        val height = bounds.height.toInt().coerceAtLeast(1)
         val paint = glowPaints.getOrPut(radius) { Paint().apply {
             ImageFilter.makeBlur(radius.toFloat(), radius.toFloat(), FilterTileMode.DECAL).use { imageFilter = it }
         } }
-        val padding = radius * 3f
-        native.saveLayer(SkiaRect.makeLTRB(target.left - padding, target.top - padding,
-            target.right + padding, target.bottom + padding), paint)
-        try {
-            imagePaint.alpha = (opacity * 255).roundToInt().coerceIn(0, 255)
-            native.drawImageRect(texture.image, source, target, SamplingMode.LINEAR, imagePaint, true)
-        } finally { native.restore() }
+        // Word timing changes glow strength, not the shaped mask or its blur kernel.
+        // Cache that convolution before applying each frame's motion, tint and opacity.
+        val image = Surface.makeRasterN32Premul(width, height).use { surface ->
+            val canvas = surface.canvas
+            canvas.translate(-bounds.left, -bounds.top)
+            canvas.saveLayer(bounds, paint)
+            try { canvas.drawImageRect(texture.image, source, target, SamplingMode.LINEAR, glowMaskPaint, true) }
+            finally { canvas.restore() }
+            surface.makeImageSnapshot()
+        }
+        return GlowTexture(image, bounds, width * height * 4)
     }
 
-    fun clearTextCache() { atlas.clear() }
+    fun clearTextCache() {
+        atlas.clear()
+        glowTextures.values.forEach { it.image.close() }
+        glowTextures.clear()
+        glowBytes = 0
+    }
     private fun updateTint(argb: Int) {
         if (tint == argb) return
         tint = argb
@@ -136,7 +177,8 @@ internal class WordHighlightPainter : AutoCloseable {
     override fun close() {
         if (closed) return
         closed = true
-        atlas.close()
+        clearTextCache()
+        glowMaskPaint.close()
         imagePaint.close()
         tintFilter?.close()
         tintFilter = null

@@ -16,6 +16,10 @@ internal class LyricGaussianBlur {
     }
 
     fun apply(alpha: ByteArray, width: Int, height: Int, sigma: Float): ByteArray {
+        return rgba(applyAlpha(alpha, width, height, sigma))
+    }
+
+    fun applyAlpha(alpha: ByteArray, width: Int, height: Int, sigma: Float): ByteArray {
         require(alpha.size == width * height)
         if (first.size < alpha.size) {
             first = FloatArray(alpha.size)
@@ -38,13 +42,26 @@ internal class LyricGaussianBlur {
         }
         // Half-float masks preserve faint gradients; rounding to A8 here would turn
         // many neighboring pixels into the same opacity before interpolation.
-        val output = ByteArray(alpha.size * 8)
+        val output = ByteArray(alpha.size * 2)
         val half = ByteBuffer.wrap(output).order(ByteOrder.nativeOrder()).asShortBuffer()
         for (i in alpha.indices) {
             val value = java.lang.Float.floatToFloat16((first[i] / 255f).coerceIn(0f, 1f))
-            half.put(value).put(value).put(value).put(value)
+            half.put(value)
         }
         return output
+    }
+
+    companion object {
+        fun rgba(alpha: ByteArray): ByteArray {
+            val input = ByteBuffer.wrap(alpha).order(ByteOrder.nativeOrder()).asShortBuffer()
+            val output = ByteArray(alpha.size * 4)
+            val pixels = ByteBuffer.wrap(output).order(ByteOrder.nativeOrder()).asLongBuffer()
+            while (input.hasRemaining()) {
+                val channel = input.get().toLong() and 0xffffL
+                pixels.put(channel or (channel shl 16) or (channel shl 32) or (channel shl 48))
+            }
+            return output
+        }
     }
 
     private fun horizontal(source: FloatArray, target: FloatArray, width: Int, height: Int,
