@@ -32,6 +32,7 @@ internal class LyricTextBlur : AutoCloseable {
         var resident = false
         var warming = false
         var warmThrough = 0
+        var lastAmount = Float.NaN
     }
     private data class Variant(val mask: Mask, val level: Int, val image: Image)
     private data class PreparedKey(val mask: Mask, val level: Int)
@@ -44,6 +45,8 @@ internal class LyricTextBlur : AutoCloseable {
     private val worker = Executors.newSingleThreadExecutor { task -> Thread(task, "amll-lyric-blur").apply { isDaemon = true } }
     private val gate = Any()
     private val prepared = LinkedHashMap<PreparedKey, ByteArray>(64, .75f, true)
+    private val composites = LyricBlurComposite(worker,
+        { owner -> synchronized(gate) { !closed && (owner as Mask).resident } }, ::buildComposite)
     private var preparedBytes = 0
     private val imagePaint = Paint()
     private val livePaint = Paint()
@@ -100,6 +103,23 @@ internal class LyricTextBlur : AutoCloseable {
         val amount = radius.coerceIn(0f, MAX_LYRIC_BLUR_RADIUS) * 2f
         val lower = floor(amount).toInt()
         val fraction = amount - lower
+        val unchanged = mask.lastAmount == amount
+        mask.lastAmount = amount
+        if (unchanged && cacheable(mask)) {
+            val request = LyricBlurComposite.Request(mask, mask.width, mask.height,
+                radius.coerceIn(0f, MAX_LYRIC_BLUR_RADIUS), color.toArgb(), shadowRadius)
+            composites.getOrPrepare(request)?.let { image ->
+                imagePaint.colorFilter = null
+                imagePaint.blendMode = BlendMode.SRC_OVER
+                imagePaint.setAlphaf(opacity.coerceIn(0f, 1f))
+                try {
+                    native.drawImageRect(image, SkiaRect.makeWH(mask.width.toFloat(), mask.height.toFloat()),
+                        SkiaRect.makeLTRB(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat()),
+                        SamplingMode.LINEAR, imagePaint, true)
+                } finally { imagePaint.colorFilter = tintFilter }
+                return
+            }
+        }
         val low = variant(mask, lower)
         val high = if (fraction > 0f) variant(mask, lower + 1) else null
         warm(mask, if (high != null) lower + 1 else lower)
@@ -246,6 +266,27 @@ internal class LyricTextBlur : AutoCloseable {
                 }
             }
         }
+        composites.discard(mask)
+    }
+
+    private fun buildComposite(request: LyricBlurComposite.Request): Image {
+        val mask = request.owner as Mask
+        val amount = request.radius * 2f
+        val level = floor(amount).toInt()
+        val fraction = amount - level
+        fun image(index: Int): Image {
+            if (index == 0) return Image.makeRaster(ImageInfo.makeA8(mask.width, mask.height), mask.alpha, mask.width)
+            val key = PreparedKey(mask, index)
+            val half = synchronized(gate) { prepared[key] } ?:
+                backgroundGaussian.applyAlpha(mask.alpha, mask.width, mask.height, index * .5f).also { storePrepared(key, it) }
+            return Image.makeRaster(ImageInfo(mask.width, mask.height, ColorType.RGBA_F16, ColorAlphaType.PREMUL),
+                LyricGaussianBlur.rgba(half), mask.width * 8)
+        }
+        return image(level).use { low ->
+            val high = if (fraction > 0f) image(level + 1) else null
+            try { composeLyricBlur(request, low, high, fraction) }
+            finally { high?.close() }
+        }
     }
 
     private fun updateTint(argb: Int) {
@@ -260,6 +301,7 @@ internal class LyricTextBlur : AutoCloseable {
     }
 
     fun clear() {
+        composites.clear()
         synchronized(gate) {
             masks.forEach { it.resident = false }
             prepared.clear()
@@ -277,6 +319,7 @@ internal class LyricTextBlur : AutoCloseable {
     override fun close() {
         if (closed) return
         closed = true
+        composites.close()
         clear()
         worker.shutdownNow()
         imagePaint.close()
