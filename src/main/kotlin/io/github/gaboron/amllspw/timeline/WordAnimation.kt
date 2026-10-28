@@ -44,6 +44,9 @@ internal object WordAnimation {
             if (lastWord) { amount *= 1.6f; blur *= 1.5f; du *= 1.2f }
             amount = minOf(amount, 1.2f); blur = minOf(blur, .8f)
         }
+
+        val peakGlow: Float get() = if (word.timed && emphasize) blur else 0f
+
         fun evaluate(timeMs: Long, character: Int): Transform {
             if (!word.timed) return Transform()
             val elapsed = (timeMs - word.startMs).toFloat()

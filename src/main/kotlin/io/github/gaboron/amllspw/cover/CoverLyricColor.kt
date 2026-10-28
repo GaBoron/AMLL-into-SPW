@@ -7,8 +7,8 @@ import kotlin.math.pow
 
 /** Dominant artwork hue families and a bright lyric accent for the playback background. */
 internal object CoverLyricColor {
-    private const val MAX_SATURATION = .28f
-    private const val MIN_LUMINANCE = .78
+    private const val MAX_SATURATION = .26f
+    private const val MIN_LUMINANCE = .82
 
     fun dominant(image: BufferedImage): Int? {
         val families = Array(12) { Accumulator() }

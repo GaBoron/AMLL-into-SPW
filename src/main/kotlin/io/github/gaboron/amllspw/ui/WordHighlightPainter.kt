@@ -25,6 +25,12 @@ internal class WordHighlightPainter : AutoCloseable {
         val word = region.word
         val progress = WordAnimation.progress(word, timeMs)
         val texture = atlas.get(layout, this)
+        // Even short emphasized notes must retain a stronger peak than their resting halo.
+        val bloomOpacity = when {
+            !options.coloredLyrics -> 0f
+            region.animation.peakGlow > 0f -> minOf(BLOOM_OPACITY, region.animation.peakGlow * .2f)
+            else -> BLOOM_OPACITY
+        }
         for (glyph in region.glyphs) {
             val rect = glyph.bounds
             val animation = if (options.reducedMotion) WordAnimation.Transform() else
@@ -46,18 +52,24 @@ internal class WordHighlightPainter : AutoCloseable {
                 scale(scale, scale, Offset(rect.center.x, rect.bottom))
             }) {
                 val native = drawContext.canvas.skiaCanvas
-                if (options.glow && animation.glow > .001f && highlight > .001f) {
-                    val radius = (animation.blurEm * layout.emPx).roundToInt().coerceIn(1, 24)
-                    val paint = glowPaints.getOrPut(radius) { Paint().apply {
-                        ImageFilter.makeBlur(radius.toFloat(), radius.toFloat(), FilterTileMode.DECAL).use { imageFilter = it }
-                    } }
-                    val padding = radius * 3f
-                    native.saveLayer(SkiaRect.makeLTRB(target.left - padding, target.top - padding,
-                        target.right + padding, target.bottom + padding), paint)
-                    try {
-                        imagePaint.alpha = (animation.glow * highlight * 255).roundToInt().coerceIn(0, 255)
-                        native.drawImageRect(texture.image, source, target, SamplingMode.LINEAR, imagePaint, true)
-                    } finally { native.restore() }
+                if (options.glow && !options.reducedMotion && highlight > .001f) {
+                    val lit = when {
+                        progress <= 0f -> 0f
+                        progress >= .999f -> 1f
+                        else -> {
+                            val litWidth = if (region.rightToLeft) rect.right - edgeX else edgeX - rect.left
+                            (litWidth / rect.width).coerceIn(0f, 1f)
+                        }
+                    }
+                    val bloom = bloomOpacity * lit
+                    val strength = maxOf(animation.glow, bloom)
+                    if (strength > .001f) {
+                        // Blend into the existing emphasis instead of adding another glow on top.
+                        val emphasis = if (bloom > 0f) (animation.glow / bloom).coerceIn(0f, 1f) else 1f
+                        val radiusEm = BLOOM_RADIUS_EM + (animation.blurEm - BLOOM_RADIUS_EM) * emphasis
+                        val radius = (radiusEm * layout.emPx).roundToInt().coerceIn(1, 24)
+                        paintGlow(texture, source, target, strength * highlight, radius)
+                    }
                 }
                 imagePaint.alpha = ((.2f + .2f * highlight) * 255).roundToInt()
                 native.drawImageRect(texture.image, source, target, SamplingMode.LINEAR, imagePaint, true)
@@ -83,6 +95,33 @@ internal class WordHighlightPainter : AutoCloseable {
             }
         }
     }
+
+    fun DrawScope.paintBloom(layout: LineLayout, highlight: Float, options: RenderOptions, color: Color) {
+        if (!options.coloredLyrics || !options.glow || options.reducedMotion || highlight <= .001f) return
+        updateTint(color.toArgb())
+        val texture = atlas.get(layout, this)
+        val padding = texture.padding
+        val source = SkiaRect.makeWH(texture.image.width.toFloat(), texture.image.height.toFloat())
+        val target = SkiaRect.makeLTRB(-padding, -padding,
+            layout.main.size.width + padding, layout.main.size.height + padding)
+        val radius = (BLOOM_RADIUS_EM * layout.emPx).roundToInt().coerceIn(1, 24)
+        paintGlow(texture, source, target, BLOOM_OPACITY * highlight, radius)
+    }
+
+    private fun DrawScope.paintGlow(texture: GlyphAtlas.Entry, source: SkiaRect, target: SkiaRect, opacity: Float, radius: Int) {
+        val native = drawContext.canvas.skiaCanvas
+        val paint = glowPaints.getOrPut(radius) { Paint().apply {
+            ImageFilter.makeBlur(radius.toFloat(), radius.toFloat(), FilterTileMode.DECAL).use { imageFilter = it }
+        } }
+        val padding = radius * 3f
+        native.saveLayer(SkiaRect.makeLTRB(target.left - padding, target.top - padding,
+            target.right + padding, target.bottom + padding), paint)
+        try {
+            imagePaint.alpha = (opacity * 255).roundToInt().coerceIn(0, 255)
+            native.drawImageRect(texture.image, source, target, SamplingMode.LINEAR, imagePaint, true)
+        } finally { native.restore() }
+    }
+
     fun clearTextCache() { atlas.clear() }
     private fun updateTint(argb: Int) {
         if (tint == argb) return
@@ -102,5 +141,10 @@ internal class WordHighlightPainter : AutoCloseable {
         tintFilter = null
         glowPaints.values.forEach { it.close() }
         glowPaints.clear()
+    }
+
+    private companion object {
+        const val BLOOM_OPACITY = .05f
+        const val BLOOM_RADIUS_EM = .04f
     }
 }

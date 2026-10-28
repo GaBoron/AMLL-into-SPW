@@ -25,6 +25,7 @@ internal class LyricLinePainter(private val measurer: TextMeasurer) : AutoClosea
             layout.upperRomanization?.let { with(ruby) { paintUpper(it, layout.emPx, highlight, color) } }
             translate(top = layout.rubyHeight) {
                 if (!layout.line.hasWordTiming || highlight <= .001f) {
+                    with(words) { paintBloom(layout, highlight, options, color) }
                     drawText(layout.main, color = color, alpha = .2f + .8f * highlight)
                 } else {
                     for (region in layout.words) {
