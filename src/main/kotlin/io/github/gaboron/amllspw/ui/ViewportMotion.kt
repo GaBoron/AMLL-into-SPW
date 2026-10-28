@@ -153,7 +153,6 @@ internal class ViewportMotion {
                 val voiceScale = if (line.background && !active[index]) .75f else 1f
                 val opacity = if (!line.background) 1f else if (row.expanded) .4f else 0f
                 voice.highlight.update(active[index], dt, first || seek || immediate)
-                voice.blur.update(abs(index - motionFocus), active[index] || manual, dt, first || seek || immediate)
                 voice.visibility.update(!hidePassed || timeMs < groups[index].rows.maxOf { it.line.endMs }, dt, first || seek || immediate)
                 if (first || seek || immediate) { voice.scale.snap(voiceScale); voice.opacity.snap(opacity) }
                 else { voice.scale.update(voiceScale, dt); voice.opacity.update(opacity, dt) }

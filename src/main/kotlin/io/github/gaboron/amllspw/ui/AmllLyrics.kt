@@ -128,47 +128,61 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
             drawText(empty, color = Color.White.copy(alpha = .6f), topLeft = Offset((size.width - empty.size.width) / 2, size.height * .35f))
         }
         val hits = mutableListOf<ViewportMotion.Hit>()
-        for ((index, group) in cache.groups.withIndex()) {
-            val motion = motions[index]
-            val y = motion.y.value
-            if (y + group.height < -60 || y > size.height + 60) continue
-            var rowY = y
-            val backgroundHeight = group.rows.filter { it.line.background }.sumOf { it.height.toDouble() }.toFloat()
-            val groupActive = position >= group.rows.minOf { it.line.startMs } && position < group.rows.maxOf { it.line.endMs }
-            for ((voiceIndex, row) in group.rows.withIndex()) {
-                val voice = motion.voices[voiceIndex]
-                val visibility = voice.visibility.value * motion.overflowOpacity
-                if (voice.opacity.value < .001f || visibility < .001f) { rowY += row.height; continue }
-                val paintY = rowY + if (row.line.background) motion.backgroundSlide.value.coerceIn(-80f, 0f) / 100 * backgroundHeight else 0f
-                val bounds = Rect(margin - 10, paintY, size.width - margin + 10, paintY + row.height)
-                val hover = pointer.position?.let { bounds.contains(it) } == true
-                voice.hover.update(hover, dt)
-                paintRowHover(bounds, voice.hover.value * visibility, pointer.pressed, row.emPx)
-                val edgeAlpha = minOf((paintY / 45f).coerceIn(0f, 1f), ((size.height - paintY) / 70f).coerceIn(0f, 1f)) * voice.opacity.value.coerceIn(0f, 1f) * visibility
-                val scale = if (!options.scale || options.reducedMotion) 1f else
-                    motion.scale.value * voice.scale.value * motion.overflowScale
-                withTransform({
-                    translate(margin + row.inset, paintY)
-                    scale(scale, scale, Offset(if (row.line.duet) row.main.size.width.toFloat() else 0f, row.height / 2))
-                }) {
-                    // saveLayer is only needed at viewport edges; inner text draws directly.
-                    val native = drawContext.canvas.skiaCanvas
-                    val paint = if (edgeAlpha < .999f) org.jetbrains.skia.Paint().apply { alpha = (edgeAlpha * 255).toInt() } else null
-                    if (paint != null) native.saveLayer(row.layerBounds, paint)
-                    try { with(painter) { paintLine(row, position, groupActive, abs(index - frame.focus), manual, options,
-                        voice.highlight.value, lyricColor, voice.blur.radius) } }
-                    finally { if (paint != null) { native.restore(); paint.close() } }
+        val clearBlur = manual || !options.blur || options.reducedMotion
+        val blurFocus = if (viewport.footer.focused) cache.groups.size else frame.focus
+        withLyricViewportFade {
+            for ((index, group) in cache.groups.withIndex()) {
+                val motion = motions[index]
+                val y = motion.y.value
+                val distance = abs(index - blurFocus)
+                val groupActive = position >= group.rows.minOf { it.line.startMs } && position < group.rows.maxOf { it.line.endMs }
+                if (y + group.height < -60 || y > size.height + 60) {
+                    motion.voices.forEach { it.blur.update(distance, clearBlur || groupActive, dt) }
+                    continue
                 }
-                hits += ViewportMotion.Hit(bounds, row.line.startMs)
-                rowY += row.height
+                var rowY = y
+                val backgroundHeight = group.rows.filter { it.line.background }.sumOf { it.height.toDouble() }.toFloat()
+                for ((voiceIndex, row) in group.rows.withIndex()) {
+                    val voice = motion.voices[voiceIndex]
+                    val visibility = voice.visibility.value * motion.overflowOpacity
+                    if (voice.opacity.value < .001f || visibility < .001f) {
+                        voice.blur.update(distance, clearBlur || groupActive, dt)
+                        rowY += row.height
+                        continue
+                    }
+                    val paintY = rowY + if (row.line.background) motion.backgroundSlide.value.coerceIn(-80f, 0f) / 100 * backgroundHeight else 0f
+                    val bounds = Rect(margin - 10, paintY, size.width - margin + 10, paintY + row.height)
+                    val hover = pointer.position?.let { bounds.contains(it) } == true
+                    voice.hover.update(hover, dt)
+                    voice.blur.update(distance, clearBlur || groupActive || hover, dt)
+                    paintRowHover(bounds, voice.hover.value * visibility, pointer.pressed, row.emPx)
+                    val rowOpacity = voice.opacity.value.coerceIn(0f, 1f) * visibility
+                    val scale = if (!options.scale || options.reducedMotion) 1f else
+                        motion.scale.value * voice.scale.value * motion.overflowScale
+                    val pivot = Offset(if (row.line.duet) row.main.size.width.toFloat() else 0f, row.height / 2)
+                    val rowViewport = lyricViewportInRow(size, Offset(margin + row.inset, paintY), scale, pivot)
+                    withTransform({
+                        translate(margin + row.inset, paintY)
+                        scale(scale, scale, pivot)
+                    }) {
+                        // Fade individual voices here; the viewport mask fades their final blurred pixels.
+                        val native = drawContext.canvas.skiaCanvas
+                        val paint = if (rowOpacity < .999f) org.jetbrains.skia.Paint().apply { alpha = (rowOpacity * 255).toInt() } else null
+                        if (paint != null) native.saveLayer(row.layerBounds, paint)
+                        try { with(painter) { paintLine(row, position, options, voice.highlight.value, lyricColor, voice.blur.radius, rowViewport) } }
+                        finally { if (paint != null) { native.restore(); paint.close() } }
+                    }
+                    hits += ViewportMotion.Hit(bounds, row.line.startMs)
+                    rowY += row.height
+                }
             }
-        }
-        viewport.hits = hits
-        with(footerPainter) { paintFooter(cache.footer, viewport.footer, margin, lyricColor) }
-        viewport.interludeY?.let { y ->
-            val duet = interval?.beforeGroup?.let { cache.groups.getOrNull(it)?.rows?.firstOrNull()?.line?.duet } == true
-            val x = if (duet) size.width - margin - interludeWidth(fontSize * density.density) else margin
-            paintInterlude(interlude.snapshot, y, x, fontSize * density.density, hits.map { it.bounds }, options.reducedMotion, lyricColor)
+            viewport.hits = hits
+            with(footerPainter) { paintFooter(cache.footer, viewport.footer, margin, lyricColor) }
+            viewport.interludeY?.let { y ->
+                val duet = interval?.beforeGroup?.let { cache.groups.getOrNull(it)?.rows?.firstOrNull()?.line?.duet } == true
+                val x = if (duet) size.width - margin - interludeWidth(fontSize * density.density) else margin
+                paintInterlude(interlude.snapshot, y, x, fontSize * density.density, hits.map { it.bounds }, options.reducedMotion, lyricColor)
+            }
         }
     }
 }
