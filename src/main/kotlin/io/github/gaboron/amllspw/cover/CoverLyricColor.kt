@@ -5,8 +5,11 @@ import java.awt.Color
 import java.awt.image.BufferedImage
 import kotlin.math.pow
 
-/** SPW Island's dominant hue families and bright, restrained lyric accent. */
+/** Dominant artwork hue families and a bright lyric accent for the playback background. */
 internal object CoverLyricColor {
+    private const val MAX_SATURATION = .28f
+    private const val MIN_LUMINANCE = .78
+
     fun dominant(image: BufferedImage): Int? {
         val families = Array(12) { Accumulator() }
         val neutral = Accumulator()
@@ -32,31 +35,27 @@ internal object CoverLyricColor {
     fun foreground(coverRgb: Int?): Int {
         val cover = coverRgb?.let(::Color) ?: return Color.WHITE.rgb
         val hsb = Color.RGBtoHSB(cover.red, cover.green, cover.blue, null)
-        val saturation = hsb[1].coerceAtMost(.42f)
+        val saturation = hsb[1].coerceAtMost(MAX_SATURATION)
         fun bright(value: Float) = Color.getHSBColor(hsb[0], value, 1f)
         val preferred = bright(saturation)
-        val background = Color(7, 8, 12)
-        if (contrast(preferred, background) >= 10.0) return preferred.rgb
+        // Full HSB brightness can still look dim in blue/purple. Keep the artwork hue,
+        // but reduce saturation until the text has enough perceptual brightness.
+        if (luminance(preferred) >= MIN_LUMINANCE) return preferred.rgb
         var low = 0f
         var high = saturation
-        repeat(8) {
+        repeat(10) {
             val middle = (low + high) / 2f
-            if (contrast(bright(middle), background) >= 10.0) low = middle else high = middle
+            if (luminance(bright(middle)) >= MIN_LUMINANCE) low = middle else high = middle
         }
         return bright(low).rgb
     }
 
-    private fun contrast(first: Color, second: Color): Double {
-        fun luminance(color: Color): Double {
-            fun linear(channel: Int): Double {
-                val value = channel / 255.0
-                return if (value <= .04045) value / 12.92 else ((value + .055) / 1.055).pow(2.4)
-            }
-            return .2126 * linear(color.red) + .7152 * linear(color.green) + .0722 * linear(color.blue)
+    private fun luminance(color: Color): Double {
+        fun linear(channel: Int): Double {
+            val value = channel / 255.0
+            return if (value <= .04045) value / 12.92 else ((value + .055) / 1.055).pow(2.4)
         }
-        val a = luminance(first)
-        val b = luminance(second)
-        return (maxOf(a, b) + .05) / (minOf(a, b) + .05)
+        return .2126 * linear(color.red) + .7152 * linear(color.green) + .0722 * linear(color.blue)
     }
 
     private class Accumulator {
