@@ -27,6 +27,7 @@ internal class AmllRuntime : AutoCloseable {
     val presentation = mutablePresentation.asStateFlow()
     val clock = PlaybackClock()
     private val local = LocalLyricsReader()
+    private val covers = CoverPaletteReader()
     private val readings = JapaneseReadings()
     private val hostLyrics = HostLyricsAdapter(HostSecondaryLyrics(readings))
     private val annotations = JapaneseAnnotations(readings)
@@ -54,9 +55,14 @@ internal class AmllRuntime : AutoCloseable {
         }, 0, 1_000, TimeUnit.MILLISECONDS)
     }
 
-    fun trackChanged(media: PlaybackExtensionPoint.MediaItem) = enqueue {
-        val current = WorkshopApi.playback.getCurrentMediaItem() ?: return@enqueue clear()
-        select(current, reload = current.id == media.id && current.path == media.path)
+    fun trackChanged(media: PlaybackExtensionPoint.MediaItem) {
+        if (closed) return
+        // Begin the artwork request at the before-load notification, ahead of queued lyric IO.
+        covers.load(media.id)
+        enqueue {
+            val current = WorkshopApi.playback.getCurrentMediaItem() ?: return@enqueue clear()
+            select(current, reload = current.id == media.id && current.path == media.path)
+        }
     }
     fun lyricsChanged() = enqueue {
         // Resolve current identity before associating an unkeyed host lyric callback with a song.
@@ -125,16 +131,28 @@ internal class AmllRuntime : AutoCloseable {
         if (initialized && next == key && !reload) return
         initialized = true
         key = next
+        val artwork = covers.load(media.id)
+        val ready = artwork.isDone
+        val colors = if (ready) artwork.getNow(null) else null
         val previous = mutablePresentation.value
-        mutablePresentation.value = LyricsPresentation(trackKey = next, palette = previous.palette, loading = true,
+        mutablePresentation.value = LyricsPresentation(trackKey = next, palette = colors?.palette ?: previous.palette,
+            lyricColor = colors?.lyric ?: if (ready) 0xffffffff.toInt() else previous.lyricColor, loading = true,
             footer = footerInbox.current(TrackIdentity(media.id, media.path)))
+        artwork.thenAccept { loaded -> enqueue { applyCover(media, loaded) } }
         localDocument = runCatching { local.readTtml(Path.of(media.path)) }.getOrNull()
         if (closed) return
+        // A fast cover decode can finish while local lyrics are read; publish both together.
+        if (artwork.isDone) applyCover(media, artwork.getNow(null))
         refreshDocument(media)
-        CoverPaletteReader.read(media.id)?.let { colors ->
-            if (!closed && currentIdentity()?.matches(TrackIdentity(media.id, media.path)) == true)
-                mutablePresentation.value = mutablePresentation.value.copy(palette = colors.palette, lyricColor = colors.lyric)
-        }
+    }
+
+    private fun applyCover(media: PlaybackExtensionPoint.MediaItem, colors: CoverPaletteReader.Colors?) {
+        val trackKey = "${media.id}|${media.path}"
+        val current = mutablePresentation.value
+        if (!closed && current.trackKey == trackKey && key == trackKey &&
+            currentIdentity()?.matches(TrackIdentity(media.id, media.path)) == true)
+            mutablePresentation.value = current.copy(palette = colors?.palette ?: current.palette,
+                lyricColor = colors?.lyric ?: 0xffffffff.toInt())
     }
 
     private fun refreshDocument(media: PlaybackExtensionPoint.MediaItem, hostUpdated: Boolean = false) {
@@ -163,5 +181,5 @@ internal class AmllRuntime : AutoCloseable {
         if (closed) return
         runCatching { worker.execute { if (!closed) runCatching(action).onFailure { System.err.println("AMLL: ${it.message}") } } }
     }
-    override fun close() { closed = true; inbox.close(); footerInbox.close(); worker.shutdownNow(); preferences.close(); mutablePresentation.value = LyricsPresentation() }
+    override fun close() { closed = true; covers.close(); inbox.close(); footerInbox.close(); worker.shutdownNow(); preferences.close(); mutablePresentation.value = LyricsPresentation() }
 }
