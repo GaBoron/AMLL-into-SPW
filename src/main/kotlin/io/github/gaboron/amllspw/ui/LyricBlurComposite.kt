@@ -21,7 +21,7 @@ internal class LyricBlurComposite(
     private val alive: (Any) -> Boolean,
     private val build: (Request) -> Image,
 ) : AutoCloseable {
-    data class Request(val owner: Any, val width: Int, val height: Int, val radius: Float, val color: Int, val shadow: Int) {
+    data class Request(val owner: Any, val width: Int, val height: Int, val radius: Float, val color: Int, val shadow: Int, val shadowAlpha: Int) {
         val bytes: Int get() = width * height * 8
     }
     private data class Ready(val request: Request, val image: Image)
@@ -111,8 +111,8 @@ internal fun composeLyricBlur(request: LyricBlurComposite.Request, low: Image, h
     return Surface.makeRaster(info).use { surface ->
         val bounds = SkiaRect.makeWH(request.width.toFloat(), request.height.toFloat())
         Paint().use { shadow ->
-            if (request.shadow > 0) ImageFilter.makeDropShadow(0f, 0f,
-                request.shadow.toFloat(), request.shadow.toFloat(), 0x26000000).use { shadow.imageFilter = it }
+            if (request.shadow > 0 && request.shadowAlpha > 0) ImageFilter.makeDropShadow(0f, 0f,
+                request.shadow.toFloat(), request.shadow.toFloat(), request.shadowAlpha shl 24).use { shadow.imageFilter = it }
             val canvas = surface.canvas
             canvas.saveLayer(Canvas.SaveLayerRec(bounds, shadow, null, null,
                 Canvas.SaveLayerFlags(Canvas.SaveLayerFlagsSet.F16ColorType)))
@@ -121,11 +121,11 @@ internal fun composeLyricBlur(request: LyricBlurComposite.Request, low: Image, h
                     Paint().use { paint ->
                         paint.colorFilter = tint
                         paint.setAlphaf(1f - fraction)
-                        canvas.drawImageRect(low, bounds, bounds, SamplingMode.LINEAR, paint, true)
+                        canvas.drawImageRect(low, lyricBlurImageBounds(low), bounds, SamplingMode.LINEAR, paint, true)
                         if (high != null) {
                             paint.blendMode = BlendMode.PLUS
                             paint.setAlphaf(fraction)
-                            canvas.drawImageRect(high, bounds, bounds, SamplingMode.LINEAR, paint, true)
+                            canvas.drawImageRect(high, lyricBlurImageBounds(high), bounds, SamplingMode.LINEAR, paint, true)
                         }
                     }
                 }

@@ -34,8 +34,13 @@ internal data class LineLayout(
 ) {
     // Include word float/glow and secondary text, while avoiding a viewport-sized layer per row.
     private val effectPadding = maxOf(emPx * 1.5f, MAX_LYRIC_BLUR_RADIUS * 3f)
-    val layerBounds = org.jetbrains.skia.Rect.makeLTRB(-effectPadding, -effectPadding,
-        main.size.width + effectPadding, height + effectPadding)
+    // Text is measured at the full column width for alignment and wrapping. Only
+    // its ink extent needs a blur mask or intermediate layer, including in duets.
+    private val textRows = (listOf(main) + auxiliary + listOfNotNull(upperRomanization))
+        .flatMap { text -> (0 until text.lineCount).map { line -> text.getLineLeft(line) to text.getLineRight(line) } }
+    val layerBounds = org.jetbrains.skia.Rect.makeLTRB(
+        textRows.minOfOrNull { it.first }?.minus(effectPadding) ?: -effectPadding, -effectPadding,
+        (textRows.maxOfOrNull { it.second } ?: 0f) + effectPadding, height + effectPadding)
 }
 internal data class GroupLayout(val rows: List<LineLayout>, val top: Float, val height: Float)
 

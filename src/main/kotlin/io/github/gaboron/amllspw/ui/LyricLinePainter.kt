@@ -16,7 +16,7 @@ internal class LyricLinePainter(private val measurer: TextMeasurer) : AutoClosea
         highlight: Float, color: Color, blurRadius: Float, viewport: SkiaRect? = null) {
         with(textBlur) {
             val contrast = if (options.coloredLyrics) layout.emPx else 0f
-            if (blurRadius == 0f && highlight == 1f) {
+            if (blurRadius == 0f) {
                 // Live word motion/glow already uses the host canvas. Do not flatten
                 // and upload the complete sharp row again on every animation frame.
                 paintLive(layout.layerBounds, color, contrast) { paintContent(layout, positionMs, options, highlight, Color.White) }

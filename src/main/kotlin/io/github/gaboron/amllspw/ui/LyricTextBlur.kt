@@ -26,7 +26,7 @@ import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
-/** Full-resolution row masks, independent of the host clip and GPU blur downsampling. */
+/** Native-resolution source masks with a small, prefiltered blur scale space. */
 internal class LyricTextBlur : AutoCloseable {
     private class Mask(val key: Any?, val left: Int, val top: Int, val width: Int, val height: Int, val alpha: ByteArray) {
         var resident = false
@@ -34,7 +34,9 @@ internal class LyricTextBlur : AutoCloseable {
         var warmThrough = 0
         var lastAmount = Float.NaN
     }
-    private data class Variant(val mask: Mask, val level: Int, val image: Image)
+    private data class Variant(val mask: Mask, val level: Int, val image: Image) {
+        val bytes: Int get() = image.width * image.height * if (level == 0) 1 else 8
+    }
     private data class PreparedKey(val mask: Mask, val level: Int)
     private val masks = ArrayDeque<Mask>()
     private val variants = ArrayDeque<Variant>()
@@ -44,7 +46,7 @@ internal class LyricTextBlur : AutoCloseable {
     private val backgroundGaussian = LyricGaussianBlur()
     private val worker = Executors.newSingleThreadExecutor { task -> Thread(task, "amll-lyric-blur").apply { isDaemon = true } }
     private val gate = Any()
-    private val prepared = LinkedHashMap<PreparedKey, ByteArray>(64, .75f, true)
+    private val prepared = LinkedHashMap<PreparedKey, LyricGaussianBlur.Mask>(64, .75f, true)
     private val composites = LyricBlurComposite(worker,
         { owner -> synchronized(gate) { !closed && (owner as Mask).resident } }, ::buildComposite)
     private var preparedBytes = 0
@@ -90,8 +92,11 @@ internal class LyricTextBlur : AutoCloseable {
         // segments use a fixed grid so their cache key does not change every pixel.
         val left = if (fullMaskFits) fullLeft else maxOf(fullLeft, floor((clip.left - halo) / 128f).toInt() * 128)
         val top = if (fullMaskFits) fullTop else maxOf(fullTop, floor((clip.top - halo) / 128f).toInt() * 128)
-        val right = if (fullMaskFits) fullRight else minOf(fullRight, ceil((clip.right + halo) / 128f).toInt() * 128)
-        val bottom = if (fullMaskFits) fullBottom else minOf(fullBottom, ceil((clip.bottom + halo) / 128f).toInt() * 128)
+        val cropRight = if (fullMaskFits) fullRight else minOf(fullRight, ceil((clip.right + halo) / 128f).toInt() * 128)
+        val cropBottom = if (fullMaskFits) fullBottom else minOf(fullBottom, ceil((clip.bottom + halo) / 128f).toInt() * 128)
+        // All pyramid images cover the same extent, including their zero-filled halo.
+        val right = left + ((cropRight - left + 3) / 4) * 4
+        val bottom = top + ((cropBottom - top + 3) / 4) * 4
         if (right <= left || bottom <= top) return
         val mask = masks.firstOrNull {
             key != null && it.key === key && it.left == left && it.top == top && it.width == right - left && it.height == bottom - top
@@ -100,14 +105,18 @@ internal class LyricTextBlur : AutoCloseable {
             masks.addLast(it)
         } ?: capture(key, left, top, right - left, bottom - top, content)
         updateTint(color.toArgb())
-        val amount = radius.coerceIn(0f, MAX_LYRIC_BLUR_RADIUS) * 2f
-        val lower = floor(amount).toInt()
-        val fraction = amount - lower
+        val amount = radius.coerceIn(0f, MAX_LYRIC_BLUR_RADIUS)
+        val blend = LyricBlurLevels.blend(amount)
+        val lower = blend.lower
+        val fraction = blend.fraction
+        // The centered contrast shadow is useful on sharp strokes. Fade it out
+        // continuously with depth instead of filtering almost invisible blurred ink.
+        val shadowAlpha = (38f * (1f - amount / 3.25f).coerceIn(0f, 1f)).roundToInt()
         val unchanged = mask.lastAmount == amount
         mask.lastAmount = amount
         if (unchanged && cacheable(mask)) {
             val request = LyricBlurComposite.Request(mask, mask.width, mask.height,
-                radius.coerceIn(0f, MAX_LYRIC_BLUR_RADIUS), color.toArgb(), shadowRadius)
+                radius.coerceIn(0f, MAX_LYRIC_BLUR_RADIUS), color.toArgb(), shadowRadius, shadowAlpha)
             composites.getOrPrepare(request)?.let { image ->
                 imagePaint.colorFilter = null
                 imagePaint.blendMode = BlendMode.SRC_OVER
@@ -122,22 +131,21 @@ internal class LyricTextBlur : AutoCloseable {
         }
         val low = variant(mask, lower)
         val high = if (fraction > 0f) variant(mask, lower + 1) else null
-        warm(mask, if (high != null) lower + 1 else lower)
-        val layer = shadowPaint(shadowRadius)
+        warm(mask, blend.upper)
+        val layer = shadowPaint(shadowRadius, shadowAlpha)
         native.saveLayer(Canvas.SaveLayerRec(bounds, layer, null, null,
             Canvas.SaveLayerFlags(Canvas.SaveLayerFlagsSet.F16ColorType)))
         try {
-            val source = SkiaRect.makeWH(mask.width.toFloat(), mask.height.toFloat())
             val target = SkiaRect.makeLTRB(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat())
             imagePaint.blendMode = BlendMode.SRC_OVER
             imagePaint.setAlphaf(((1f - fraction) * opacity).coerceIn(0f, 1f))
-            native.drawImageRect(low, source, target, SamplingMode.LINEAR, imagePaint, true)
+            native.drawImageRect(low, lyricBlurImageBounds(low), target, SamplingMode.LINEAR, imagePaint, true)
             if (high != null) {
                 // Add premultiplied weighted masks on a transparent layer: exact linear
                 // interpolation, without alpha-over darkening halfway through a transition.
                 imagePaint.blendMode = BlendMode.PLUS
                 imagePaint.setAlphaf((fraction * opacity).coerceIn(0f, 1f))
-                native.drawImageRect(high, source, target, SamplingMode.LINEAR, imagePaint, true)
+                native.drawImageRect(high, lyricBlurImageBounds(high), target, SamplingMode.LINEAR, imagePaint, true)
             }
         } finally {
             native.restore()
@@ -148,8 +156,8 @@ internal class LyricTextBlur : AutoCloseable {
         }
     }
 
-    private fun shadowPaint(radius: Int): Paint? = if (radius > 0) shadows.getOrPut(radius) { Paint().apply {
-        ImageFilter.makeDropShadow(0f, 0f, radius.toFloat(), radius.toFloat(), 0x26000000).use { imageFilter = it }
+    private fun shadowPaint(radius: Int, alpha: Int = 38): Paint? = if (radius > 0 && alpha > 0) shadows.getOrPut(radius * 256 + alpha) { Paint().apply {
+        ImageFilter.makeDropShadow(0f, 0f, radius.toFloat(), radius.toFloat(), alpha shl 24).use { imageFilter = it }
     } } else null
 
     private fun DrawScope.capture(key: Any?, left: Int, top: Int, width: Int, height: Int, content: DrawScope.() -> Unit): Mask {
@@ -175,7 +183,7 @@ internal class LyricTextBlur : AutoCloseable {
                     val obsolete = variants.filter { it.mask === old }
                     obsolete.forEach {
                         variants.remove(it)
-                        imageBytes -= old.alpha.size * 8
+                        imageBytes -= it.bytes
                         it.image.close()
                     }
                 }
@@ -194,20 +202,19 @@ internal class LyricTextBlur : AutoCloseable {
         val image = if (level == 0) Image.makeRaster(ImageInfo.makeA8(mask.width, mask.height), mask.alpha, mask.width)
         else {
             val key = PreparedKey(mask, level)
-            val half = synchronized(gate) { prepared[key] } ?: gaussian.applyAlpha(mask.alpha, mask.width, mask.height, level * .5f).also {
+            val sampled = synchronized(gate) { prepared[key] } ?: gaussian.applyAlpha(mask.alpha, mask.width, mask.height, LyricBlurLevels.radius(level)).also {
                 storePrepared(key, it)
                 warm(mask, maxOf(level, mask.warmThrough), refresh = true)
             }
-            val alpha = LyricGaussianBlur.rgba(half)
-            val info = ImageInfo(mask.width, mask.height, ColorType.RGBA_F16, ColorAlphaType.PREMUL)
-            Image.makeRaster(info, alpha, mask.width * 8)
+            sampledImage(sampled)
         }
         if (cacheable(mask)) {
-            variants.addLast(Variant(mask, level, image))
-            imageBytes += mask.alpha.size * 8
+            val variant = Variant(mask, level, image)
+            variants.addLast(variant)
+            imageBytes += variant.bytes
             while (variants.size > 64 || imageBytes > IMAGE_BUDGET) {
                 val old = variants.removeFirst()
-                imageBytes -= old.mask.alpha.size * 8
+                imageBytes -= old.bytes
                 old.image.close()
             }
         }
@@ -236,19 +243,19 @@ internal class LyricTextBlur : AutoCloseable {
                 PreparedKey(mask, level++)
             }
             if (synchronized(gate) { prepared.containsKey(key) }) continue
-            val half = backgroundGaussian.applyAlpha(mask.alpha, mask.width, mask.height, key.level * .5f)
-            storePrepared(key, half)
+            val sampled = backgroundGaussian.applyAlpha(mask.alpha, mask.width, mask.height, LyricBlurLevels.radius(key.level))
+            storePrepared(key, sampled)
         }
     }
 
-    private fun storePrepared(key: PreparedKey, half: ByteArray) {
+    private fun storePrepared(key: PreparedKey, sampled: LyricGaussianBlur.Mask) {
         synchronized(gate) {
             if (closed || !key.mask.resident || prepared.containsKey(key)) return
-            prepared[key] = half
-            preparedBytes += half.size
+            prepared[key] = sampled
+            preparedBytes += sampled.alpha.size
             val entries = prepared.entries.iterator()
             while (preparedBytes > PREPARED_BUDGET && entries.hasNext()) {
-                preparedBytes -= entries.next().value.size
+                preparedBytes -= entries.next().value.alpha.size
                 entries.remove()
             }
         }
@@ -261,7 +268,7 @@ internal class LyricTextBlur : AutoCloseable {
             while (entries.hasNext()) {
                 val entry = entries.next()
                 if (entry.key.mask === mask) {
-                    preparedBytes -= entry.value.size
+                    preparedBytes -= entry.value.alpha.size
                     entries.remove()
                 }
             }
@@ -271,16 +278,15 @@ internal class LyricTextBlur : AutoCloseable {
 
     private fun buildComposite(request: LyricBlurComposite.Request): Image {
         val mask = request.owner as Mask
-        val amount = request.radius * 2f
-        val level = floor(amount).toInt()
-        val fraction = amount - level
+        val blend = LyricBlurLevels.blend(request.radius)
+        val level = blend.lower
+        val fraction = blend.fraction
         fun image(index: Int): Image {
             if (index == 0) return Image.makeRaster(ImageInfo.makeA8(mask.width, mask.height), mask.alpha, mask.width)
             val key = PreparedKey(mask, index)
-            val half = synchronized(gate) { prepared[key] } ?:
-                backgroundGaussian.applyAlpha(mask.alpha, mask.width, mask.height, index * .5f).also { storePrepared(key, it) }
-            return Image.makeRaster(ImageInfo(mask.width, mask.height, ColorType.RGBA_F16, ColorAlphaType.PREMUL),
-                LyricGaussianBlur.rgba(half), mask.width * 8)
+            val sampled = synchronized(gate) { prepared[key] } ?:
+                backgroundGaussian.applyAlpha(mask.alpha, mask.width, mask.height, LyricBlurLevels.radius(index)).also { storePrepared(key, it) }
+            return sampledImage(sampled)
         }
         return image(level).use { low ->
             val high = if (fraction > 0f) image(level + 1) else null
@@ -288,6 +294,10 @@ internal class LyricTextBlur : AutoCloseable {
             finally { high?.close() }
         }
     }
+
+    private fun sampledImage(sampled: LyricGaussianBlur.Mask): Image = Image.makeRaster(
+        ImageInfo(sampled.width, sampled.height, ColorType.RGBA_F16, ColorAlphaType.PREMUL),
+        LyricGaussianBlur.rgba(sampled.alpha), sampled.width * 8)
 
     private fun updateTint(argb: Int) {
         if (tint == argb) return
@@ -334,3 +344,5 @@ internal class LyricTextBlur : AutoCloseable {
         const val PREPARED_BUDGET = 32 * 1024 * 1024
     }
 }
+
+internal fun lyricBlurImageBounds(image: Image): SkiaRect = SkiaRect.makeWH(image.width.toFloat(), image.height.toFloat())
