@@ -11,9 +11,8 @@ import androidx.compose.ui.graphics.toArgb
 import org.jetbrains.skia.Bitmap
 import org.jetbrains.skia.BlendMode
 import org.jetbrains.skia.Canvas
-import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.ColorFilter
-import org.jetbrains.skia.ColorType
+import org.jetbrains.skia.FilterTileMode
 import org.jetbrains.skia.Image
 import org.jetbrains.skia.ImageFilter
 import org.jetbrains.skia.ImageInfo
@@ -26,139 +25,158 @@ import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
-/** Native-resolution source masks with a small, prefiltered blur scale space. */
+/** Capture static ink once; convolution, tint and shadows are prepared only on the worker. */
 internal class LyricTextBlur : AutoCloseable {
     private class Mask(val key: Any?, val left: Int, val top: Int, val width: Int, val height: Int, val alpha: ByteArray) {
-        var resident = false
-        var warming = false
-        var warmThrough = 0
-        var lastAmount = Float.NaN
+        val image = Image.makeRaster(ImageInfo.makeA8(width, height), alpha, width)
+        @Volatile var resident = true
+        @Volatile var color = 0
+        var warmLevel = 0
+        var readySince = 0L
+        var wasFallback = false
     }
-    private data class Variant(val mask: Mask, val level: Int, val image: Image) {
-        val bytes: Int get() = image.width * image.height * if (level == 0) 1 else 8
-    }
-    private data class PreparedKey(val mask: Mask, val level: Int)
+    private data class EffectKey(val blur: Int, val shadow: Int, val alpha: Int, val color: Int)
     private val masks = ArrayDeque<Mask>()
-    private val variants = ArrayDeque<Variant>()
     private var maskBytes = 0
-    private var imageBytes = 0
-    private val gaussian = LyricGaussianBlur()
-    private val backgroundGaussian = LyricGaussianBlur()
     private val worker = Executors.newSingleThreadExecutor { task -> Thread(task, "amll-lyric-blur").apply { isDaemon = true } }
-    private val gate = Any()
-    private val prepared = LinkedHashMap<PreparedKey, LyricGaussianBlur.Mask>(64, .75f, true)
-    private val composites = LyricBlurComposite(worker,
-        { owner -> synchronized(gate) { !closed && (owner as Mask).resident } }, ::buildComposite)
-    private var preparedBytes = 0
+    private val gaussian = LyricGaussianBlur()
+    private val composites = LyricBlurComposite(worker, ::isAlive, ::buildComposite)
+    private val blend = LyricTextureBlend()
     private val imagePaint = Paint()
-    private val livePaint = Paint()
-    private val shadows = mutableMapOf<Int, Paint>()
-    private var tint: Int? = null
-    private var tintFilter: ColorFilter? = null
+    private val effects = LinkedHashMap<EffectKey, Paint>(32, .75f, true)
     @Volatile private var closed = false
 
-    fun DrawScope.paintLive(bounds: SkiaRect, color: Color, contrastEmPx: Float, content: DrawScope.() -> Unit) {
+    private fun isAlive(request: LyricBlurComposite.Request): Boolean {
+        val mask = request.owner as Mask
+        return !closed && mask.resident && mask.color == request.color
+    }
+
+    /** Tint precedes shadow and blur inside a single effect, without a separate tint layer. */
+    fun DrawScope.paintLive(bounds: SkiaRect, radius: Float, color: Color, contrastEmPx: Float, opacity: Float,
+        content: DrawScope.() -> Unit) {
+        val effect = effectPaint(radius, color.toArgb(), contrastEmPx, opacity)
+        if (effect == null) { content(); return }
         val native = drawContext.canvas.skiaCanvas
-        val radius = if (contrastEmPx > 0f) (contrastEmPx * .065f).roundToInt().coerceIn(1, 8) else 0
-        val shadow = shadowPaint(radius)
-        updateTint(color.toArgb())
-        if (shadow != null) native.saveLayer(Canvas.SaveLayerRec(bounds, shadow, null, null,
+        native.saveLayer(Canvas.SaveLayerRec(bounds, effect, null, null,
             Canvas.SaveLayerFlags(Canvas.SaveLayerFlagsSet.F16ColorType)))
-        // Keep the accepted grayscale-mask/tint order, but let the host allocate
-        // the mask on its own canvas instead of reading it back through CPU memory.
-        native.saveLayer(bounds, livePaint)
-        try { content() }
-        finally {
-            native.restore()
-            if (shadow != null) native.restore()
-        }
+        try { content() } finally { native.restore() }
     }
 
     fun DrawScope.paint(key: Any?, bounds: SkiaRect, radius: Float, color: Color, contrastEmPx: Float = 0f,
         opacity: Float = 1f, viewport: SkiaRect? = null, content: DrawScope.() -> Unit) {
-        if (opacity <= 0f) return
-        val native = drawContext.canvas.skiaCanvas
-        val shadowRadius = if (contrastEmPx > 0f) (contrastEmPx * .065f).roundToInt().coerceIn(1, 8) else 0
-        // Read enough source beyond the output clip for the complete convolution halo.
-        // Very tall paragraphs need only the visible segment plus this halo.
+        if (opacity <= 0f || closed) return
+        val amount = radius.coerceIn(0f, MAX_LYRIC_BLUR_RADIUS)
+        val shadow = if (contrastEmPx > 0f) (contrastEmPx * .065f).roundToInt().coerceIn(1, 8) else 0
         val clip = viewport ?: bounds
-        val halo = MAX_LYRIC_BLUR_RADIUS * 3f + shadowRadius * 3f + 2f
+        val halo = MAX_LYRIC_BLUR_RADIUS * 3f + shadow * 3f + 2f
         val fullLeft = floor(bounds.left).toInt()
         val fullTop = floor(bounds.top).toInt()
         val fullRight = ceil(bounds.right).toInt()
         val fullBottom = ceil(bounds.bottom).toInt()
-        val fullMaskFits = key != null && (fullRight - fullLeft).toLong() * (fullBottom - fullTop) <= IMAGE_BUDGET / 32
-        // Keep ordinary rows intact as they scroll across an edge. Tall paragraph
-        // segments use a fixed grid so their cache key does not change every pixel.
-        val left = if (fullMaskFits) fullLeft else maxOf(fullLeft, floor((clip.left - halo) / 128f).toInt() * 128)
-        val top = if (fullMaskFits) fullTop else maxOf(fullTop, floor((clip.top - halo) / 128f).toInt() * 128)
-        val cropRight = if (fullMaskFits) fullRight else minOf(fullRight, ceil((clip.right + halo) / 128f).toInt() * 128)
-        val cropBottom = if (fullMaskFits) fullBottom else minOf(fullBottom, ceil((clip.bottom + halo) / 128f).toInt() * 128)
-        // All pyramid images cover the same extent, including their zero-filled halo.
+        val fullFits = key != null && (fullRight - fullLeft).toLong() * (fullBottom - fullTop) <= MAX_MASK_PIXELS
+        val left = if (fullFits) fullLeft else maxOf(fullLeft, floor((clip.left - halo) / 128f).toInt() * 128)
+        val top = if (fullFits) fullTop else maxOf(fullTop, floor((clip.top - halo) / 128f).toInt() * 128)
+        val cropRight = if (fullFits) fullRight else minOf(fullRight, ceil((clip.right + halo) / 128f).toInt() * 128)
+        val cropBottom = if (fullFits) fullBottom else minOf(fullBottom, ceil((clip.bottom + halo) / 128f).toInt() * 128)
         val right = left + ((cropRight - left + 3) / 4) * 4
         val bottom = top + ((cropBottom - top + 3) / 4) * 4
         if (right <= left || bottom <= top) return
         val mask = masks.firstOrNull {
             key != null && it.key === key && it.left == left && it.top == top && it.width == right - left && it.height == bottom - top
-        }?.also {
-            masks.remove(it)
-            masks.addLast(it)
-        } ?: capture(key, left, top, right - left, bottom - top, content)
-        updateTint(color.toArgb())
-        val amount = radius.coerceIn(0f, MAX_LYRIC_BLUR_RADIUS)
-        val blend = LyricBlurLevels.blend(amount)
-        val lower = blend.lower
-        val fraction = blend.fraction
-        // The centered contrast shadow is useful on sharp strokes. Fade it out
-        // continuously with depth instead of filtering almost invisible blurred ink.
-        val shadowAlpha = (38f * (1f - amount / 3.25f).coerceIn(0f, 1f)).roundToInt()
-        val unchanged = mask.lastAmount == amount
-        mask.lastAmount = amount
-        if (unchanged && cacheable(mask)) {
-            val request = LyricBlurComposite.Request(mask, mask.width, mask.height,
-                radius.coerceIn(0f, MAX_LYRIC_BLUR_RADIUS), color.toArgb(), shadowRadius, shadowAlpha)
-            composites.getOrPrepare(request)?.let { image ->
-                imagePaint.colorFilter = null
-                imagePaint.blendMode = BlendMode.SRC_OVER
-                imagePaint.setAlphaf(opacity.coerceIn(0f, 1f))
-                try {
-                    native.drawImageRect(image, SkiaRect.makeWH(mask.width.toFloat(), mask.height.toFloat()),
-                        SkiaRect.makeLTRB(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat()),
-                        SamplingMode.LINEAR, imagePaint, true)
-                } finally { imagePaint.colorFilter = tintFilter }
-                return
-            }
+        }?.also { masks.remove(it); masks.addLast(it) } ?: capture(key, left, top, right - left, bottom - top, content)
+        // Source masks have a separate budget from the larger colored textures.
+        // Oversized rows can keep their ink while using the bounded native fallback.
+        val cached = key != null && mask.alpha.size <= MASK_BUDGET / 4
+        val argb = color.toArgb()
+        if (mask.color != argb) {
+            mask.color = argb
+            mask.warmLevel = 0
         }
-        val low = variant(mask, lower)
-        val high = if (fraction > 0f) variant(mask, lower + 1) else null
-        warm(mask, blend.upper)
-        val layer = shadowPaint(shadowRadius, shadowAlpha)
-        native.saveLayer(Canvas.SaveLayerRec(bounds, layer, null, null,
-            Canvas.SaveLayerFlags(Canvas.SaveLayerFlagsSet.F16ColorType)))
+        val levels = LyricBlurLevels.blend(amount)
+        fun request(level: Int): LyricBlurComposite.Request {
+            val sigma = LyricBlurLevels.radius(level)
+            return LyricBlurComposite.Request(mask, mask.width, mask.height, sigma, argb, shadow,
+                (38f * (1f - sigma / 3.25f).coerceIn(0f, 1f)).roundToInt())
+        }
+        // A miss never calls the CPU convolution from this thread. The short-lived
+        // native fallback uses the requested radius until both prepared levels arrive.
+        val low = if (cached) composites.getOrPrepare(request(levels.lower)) else null
+        val high = if (cached && levels.upper != levels.lower) composites.getOrPrepare(request(levels.upper)) else null
+        val ready = low != null && (levels.upper == levels.lower || high != null)
+        val target = SkiaRect.makeLTRB(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat())
+        val native = drawContext.canvas.skiaCanvas
         try {
-            val target = SkiaRect.makeLTRB(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat())
-            imagePaint.blendMode = BlendMode.SRC_OVER
-            imagePaint.setAlphaf(((1f - fraction) * opacity).coerceIn(0f, 1f))
-            native.drawImageRect(low, lyricBlurImageBounds(low), target, SamplingMode.LINEAR, imagePaint, true)
-            if (high != null) {
-                // Add premultiplied weighted masks on a transparent layer: exact linear
-                // interpolation, without alpha-over darkening halfway through a transition.
-                imagePaint.blendMode = BlendMode.PLUS
-                imagePaint.setAlphaf((fraction * opacity).coerceIn(0f, 1f))
-                native.drawImageRect(high, lyricBlurImageBounds(high), target, SamplingMode.LINEAR, imagePaint, true)
+            if (!ready) {
+                mask.wasFallback = true
+                mask.readySince = 0L
+                drawFallback(mask, target, amount, color, contrastEmPx, opacity)
+            } else {
+                val now = System.nanoTime()
+                if (mask.wasFallback && mask.readySince == 0L) mask.readySince = now
+                val mix = if (!mask.wasFallback) 1f else ((now - mask.readySince) / 80_000_000f).coerceIn(0f, 1f)
+                if (mix < 1f) {
+                    // Keep replacement of the temporary native blur continuous too.
+                    native.saveLayer(Canvas.SaveLayerRec(target, null, null, null,
+                        Canvas.SaveLayerFlags(Canvas.SaveLayerFlagsSet.F16ColorType)))
+                    try {
+                        drawFallback(mask, target, amount, color, contrastEmPx, opacity * (1f - mix))
+                        blend.draw(native, low, high, target, levels.fraction, opacity * mix, additive = true)
+                    } finally { native.restore() }
+                } else {
+                    mask.wasFallback = false
+                    blend.draw(native, low, high, target, levels.fraction, opacity)
+                }
             }
-        } finally {
-            native.restore()
-            if (!cacheable(mask)) {
-                low.close()
-                high?.close()
+            // Spread anticipatory work over frames instead of filling the queue with
+            // every level of every row before the next visible row can be serviced.
+            if (cached && mask.warmLevel < LyricBlurLevels.count) {
+                composites.getOrPrepare(request(mask.warmLevel++))
+            }
+        } finally { if (!cached) { mask.resident = false; mask.image.close() } }
+    }
+
+    private fun DrawScope.drawFallback(mask: Mask, target: SkiaRect, radius: Float, color: Color, contrast: Float, opacity: Float) {
+        imagePaint.setAlphaf(1f)
+        with(this@LyricTextBlur) {
+            paintLive(target, radius, color, contrast, opacity) {
+                drawContext.canvas.skiaCanvas.drawImageRect(mask.image, lyricBlurImageBounds(mask.image), target,
+                    SamplingMode.LINEAR, imagePaint, true)
             }
         }
     }
 
-    private fun shadowPaint(radius: Int, alpha: Int = 38): Paint? = if (radius > 0 && alpha > 0) shadows.getOrPut(radius * 256 + alpha) { Paint().apply {
-        ImageFilter.makeDropShadow(0f, 0f, radius.toFloat(), radius.toFloat(), alpha shl 24).use { imageFilter = it }
-    } } else null
+    private fun effectPaint(radius: Float, color: Int, contrast: Float, opacity: Float): Paint? {
+        val amount = radius.coerceIn(0f, MAX_LYRIC_BLUR_RADIUS)
+        val shadow = if (contrast > 0f) (contrast * .065f).roundToInt().coerceIn(1, 8) else 0
+        val alpha = (38f * (1f - amount / 3.25f).coerceIn(0f, 1f)).roundToInt()
+        val key = EffectKey((amount * 8f).roundToInt(), shadow, alpha, color)
+        if (key.blur == 0 && (shadow == 0 || alpha == 0) && color == -1 && opacity >= 1f) return null
+        val paint = effects.getOrPut(key) {
+            var filter: ImageFilter? = null
+            try {
+                if (color != -1) ColorFilter.makeBlend(color, BlendMode.SRC_IN).use {
+                    filter = ImageFilter.makeColorFilter(it, null, null)
+                }
+                if (shadow > 0 && alpha > 0) {
+                    val next = ImageFilter.makeDropShadow(0f, 0f, shadow.toFloat(), shadow.toFloat(), alpha shl 24, filter)
+                    filter?.close()
+                    filter = next
+                }
+                if (key.blur > 0) {
+                    val next = ImageFilter.makeBlur(key.blur / 8f, key.blur / 8f, FilterTileMode.DECAL, filter)
+                    filter?.close()
+                    filter = next
+                }
+                Paint().apply { imageFilter = filter }
+            } finally { filter?.close() }
+        }
+        while (effects.size > 192) {
+            val entry = effects.entries.iterator()
+            entry.next().value.close()
+            entry.remove()
+        }
+        return paint.apply { setAlphaf(opacity.coerceIn(0f, 1f)) }
+    }
 
     private fun DrawScope.capture(key: Any?, left: Int, top: Int, width: Int, height: Int, content: DrawScope.() -> Unit): Mask {
         val alpha = Surface.makeRasterN32Premul(width, height).use { surface ->
@@ -172,176 +190,53 @@ internal class LyricTextBlur : AutoCloseable {
             }
         }
         return Mask(key, left, top, width, height, alpha).also { mask ->
-            if (cacheable(mask)) {
-                synchronized(gate) { mask.resident = true }
+            if (key != null && alpha.size <= MASK_BUDGET / 4) {
                 masks.addLast(mask)
                 maskBytes += alpha.size
                 while (masks.size > 24 || maskBytes > MASK_BUDGET) {
                     val old = masks.removeFirst()
+                    old.resident = false
                     maskBytes -= old.alpha.size
-                    discardPrepared(old)
-                    val obsolete = variants.filter { it.mask === old }
-                    obsolete.forEach {
-                        variants.remove(it)
-                        imageBytes -= it.bytes
-                        it.image.close()
-                    }
+                    composites.discard(old)
+                    old.image.close()
                 }
             }
         }
-    }
-
-    private fun cacheable(mask: Mask) = mask.key != null && mask.alpha.size <= IMAGE_BUDGET / 32 && mask.alpha.size <= MASK_BUDGET
-
-    private fun variant(mask: Mask, level: Int): Image {
-        variants.firstOrNull { it.mask === mask && it.level == level }?.let {
-            variants.remove(it)
-            variants.addLast(it)
-            return it.image
-        }
-        val image = if (level == 0) Image.makeRaster(ImageInfo.makeA8(mask.width, mask.height), mask.alpha, mask.width)
-        else {
-            val key = PreparedKey(mask, level)
-            val sampled = synchronized(gate) { prepared[key] } ?: gaussian.applyAlpha(mask.alpha, mask.width, mask.height, LyricBlurLevels.radius(level)).also {
-                storePrepared(key, it)
-                warm(mask, maxOf(level, mask.warmThrough), refresh = true)
-            }
-            sampledImage(sampled)
-        }
-        if (cacheable(mask)) {
-            val variant = Variant(mask, level, image)
-            variants.addLast(variant)
-            imageBytes += variant.bytes
-            while (variants.size > 64 || imageBytes > IMAGE_BUDGET) {
-                val old = variants.removeFirst()
-                imageBytes -= old.bytes
-                old.image.close()
-            }
-        }
-        return image
-    }
-
-    private fun warm(mask: Mask, through: Int, refresh: Boolean = false) {
-        synchronized(gate) {
-            if (closed || !mask.resident || through == 0) return
-            if (!refresh && through <= mask.warmThrough) return
-            mask.warmThrough = maxOf(mask.warmThrough, through)
-            if (mask.warming) return
-            mask.warming = true
-        }
-        worker.execute { prepare(mask) }
-    }
-
-    private fun prepare(mask: Mask) {
-        var level = 1
-        while (true) {
-            val key = synchronized(gate) {
-                if (closed || !mask.resident || level > mask.warmThrough) {
-                    mask.warming = false
-                    return
-                }
-                PreparedKey(mask, level++)
-            }
-            if (synchronized(gate) { prepared.containsKey(key) }) continue
-            val sampled = backgroundGaussian.applyAlpha(mask.alpha, mask.width, mask.height, LyricBlurLevels.radius(key.level))
-            storePrepared(key, sampled)
-        }
-    }
-
-    private fun storePrepared(key: PreparedKey, sampled: LyricGaussianBlur.Mask) {
-        synchronized(gate) {
-            if (closed || !key.mask.resident || prepared.containsKey(key)) return
-            prepared[key] = sampled
-            preparedBytes += sampled.alpha.size
-            val entries = prepared.entries.iterator()
-            while (preparedBytes > PREPARED_BUDGET && entries.hasNext()) {
-                preparedBytes -= entries.next().value.alpha.size
-                entries.remove()
-            }
-        }
-    }
-
-    private fun discardPrepared(mask: Mask) {
-        synchronized(gate) {
-            mask.resident = false
-            val entries = prepared.entries.iterator()
-            while (entries.hasNext()) {
-                val entry = entries.next()
-                if (entry.key.mask === mask) {
-                    preparedBytes -= entry.value.alpha.size
-                    entries.remove()
-                }
-            }
-        }
-        composites.discard(mask)
     }
 
     private fun buildComposite(request: LyricBlurComposite.Request): Image {
         val mask = request.owner as Mask
-        val blend = LyricBlurLevels.blend(request.radius)
-        val level = blend.lower
-        val fraction = blend.fraction
-        fun image(index: Int): Image {
-            if (index == 0) return Image.makeRaster(ImageInfo.makeA8(mask.width, mask.height), mask.alpha, mask.width)
-            val key = PreparedKey(mask, index)
-            val sampled = synchronized(gate) { prepared[key] } ?:
-                backgroundGaussian.applyAlpha(mask.alpha, mask.width, mask.height, LyricBlurLevels.radius(index)).also { storePrepared(key, it) }
-            return sampledImage(sampled)
+        val image = if (request.radius == 0f) Image.makeRaster(ImageInfo.makeA8(mask.width, mask.height), mask.alpha, mask.width)
+        else gaussian.applyAlpha(mask.alpha, mask.width, mask.height, request.radius).let { sampled ->
+            Image.makeRaster(ImageInfo(sampled.width, sampled.height, org.jetbrains.skia.ColorType.RGBA_F16,
+                org.jetbrains.skia.ColorAlphaType.PREMUL), LyricGaussianBlur.rgba(sampled.alpha), sampled.width * 8)
         }
-        return image(level).use { low ->
-            val high = if (fraction > 0f) image(level + 1) else null
-            try { composeLyricBlur(request, low, high, fraction) }
-            finally { high?.close() }
-        }
-    }
-
-    private fun sampledImage(sampled: LyricGaussianBlur.Mask): Image = Image.makeRaster(
-        ImageInfo(sampled.width, sampled.height, ColorType.RGBA_F16, ColorAlphaType.PREMUL),
-        LyricGaussianBlur.rgba(sampled.alpha), sampled.width * 8)
-
-    private fun updateTint(argb: Int) {
-        if (tint == argb) return
-        imagePaint.colorFilter = null
-        livePaint.colorFilter = null
-        tintFilter?.close()
-        tintFilter = ColorFilter.makeBlend(argb, BlendMode.SRC_IN)
-        imagePaint.colorFilter = tintFilter
-        livePaint.colorFilter = tintFilter
-        tint = argb
+        return image.use { composeLyricBlur(request, it) }
     }
 
     fun clear() {
-        composites.clear()
-        synchronized(gate) {
-            masks.forEach { it.resident = false }
-            prepared.clear()
-            preparedBytes = 0
-        }
-        variants.forEach { it.image.close() }
-        variants.clear()
+        masks.forEach { it.resident = false; it.image.close() }
         masks.clear()
         maskBytes = 0
-        imageBytes = 0
-        gaussian.clear()
-        if (!closed) worker.execute { backgroundGaussian.clear() }
+        composites.clear()
+        blend.clear()
+        if (!closed) worker.execute { gaussian.clear() }
     }
 
     override fun close() {
         if (closed) return
         closed = true
-        composites.close()
         clear()
+        composites.close()
         worker.shutdownNow()
+        blend.close()
         imagePaint.close()
-        livePaint.close()
-        tintFilter?.close()
-        shadows.values.forEach { it.close() }
+        effects.values.forEach { it.close() }
     }
 
     private companion object {
         const val MASK_BUDGET = 16 * 1024 * 1024
-        const val IMAGE_BUDGET = 24 * 1024 * 1024
-        const val PREPARED_BUDGET = 32 * 1024 * 1024
+        const val MAX_MASK_PIXELS = 24 * 1024 * 1024 / 32
     }
 }
 

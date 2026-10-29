@@ -13,17 +13,20 @@ internal class LyricLinePainter(private val measurer: TextMeasurer) : AutoClosea
     private val ruby = LyricRubyPainter()
 
     fun DrawScope.paintLine(layout: LineLayout, positionMs: Long, options: RenderOptions,
-        highlight: Float, color: Color, blurRadius: Float, viewport: SkiaRect? = null) {
+        highlight: Float, color: Color, blurRadius: Float, viewport: SkiaRect? = null, opacity: Float = 1f) {
+        if (opacity <= 0f) return
         with(textBlur) {
             val contrast = if (options.coloredLyrics) layout.emPx else 0f
-            if (blurRadius == 0f) {
-                // Live word motion/glow already uses the host canvas. Do not flatten
-                // and upload the complete sharp row again on every animation frame.
-                paintLive(layout.layerBounds, color, contrast) { paintContent(layout, positionMs, options, highlight, Color.White) }
+            if (highlight > 0f) {
+                // Moving words use one native effect layer; their changing shapes
+                // never trigger a CPU mask capture or convolution on the UI thread.
+                paintLive(layout.layerBounds, blurRadius, color, contrast, opacity) {
+                    paintContent(layout, positionMs, options, highlight, Color.White)
+                }
                 return
             }
-            paint(layout.takeIf { highlight == 0f }, layout.layerBounds, blurRadius, color,
-                contrast, viewport = viewport) {
+            paint(layout, layout.layerBounds, blurRadius, color,
+                contrast, opacity = opacity, viewport = viewport) {
                 paintContent(layout, positionMs, options, highlight, Color.White)
             }
         }

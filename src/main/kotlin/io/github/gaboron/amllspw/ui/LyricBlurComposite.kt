@@ -18,11 +18,14 @@ import java.util.concurrent.ExecutorService
 /** Background-composed idle rows need one texture draw, without per-frame shadow/blend layers. */
 internal class LyricBlurComposite(
     private val worker: ExecutorService,
-    private val alive: (Any) -> Boolean,
+    private val alive: (Request) -> Boolean,
     private val build: (Request) -> Image,
 ) : AutoCloseable {
     data class Request(val owner: Any, val width: Int, val height: Int, val radius: Float, val color: Int, val shadow: Int, val shadowAlpha: Int) {
-        val bytes: Int get() = width * height * 8
+        val scale: Int get() = LyricGaussianBlur.sampleScale(radius)
+        val sampledWidth: Int get() = (width + scale - 1) / scale
+        val sampledHeight: Int get() = (height + scale - 1) / scale
+        val bytes: Int get() = sampledWidth * sampledHeight * 8
     }
     private data class Ready(val request: Request, val image: Image)
     private val gate = Any()
@@ -43,11 +46,11 @@ internal class LyricBlurComposite(
             generation
         }
         worker.execute {
-            val image = runCatching { if (alive(request.owner)) build(request) else null }.getOrNull()
+            val image = runCatching { if (alive(request)) build(request) else null }.getOrNull()
             synchronized(gate) {
                 pending.remove(request)
                 if (image != null) {
-                    if (!closed && generation == stamp && alive(request.owner) && queuedBytes + request.bytes <= BUDGET) {
+                    if (!closed && generation == stamp && alive(request) && queuedBytes + request.bytes <= BUDGET) {
                         queuedBytes += request.bytes
                         ready.add(Ready(request, image))
                     } else image.close()
@@ -61,7 +64,7 @@ internal class LyricBlurComposite(
         while (true) {
             val item = ready.poll() ?: break
             synchronized(gate) { queuedBytes -= item.request.bytes }
-            if (!alive(item.request.owner) || cache.containsKey(item.request)) { item.image.close(); continue }
+            if (!alive(item.request) || cache.containsKey(item.request)) { item.image.close(); continue }
             cache[item.request] = item.image
             cachedBytes += item.request.bytes
             val entries = cache.entries.iterator()
@@ -103,16 +106,17 @@ internal class LyricBlurComposite(
         clear()
     }
 
-    private companion object { const val BUDGET = 16 * 1024 * 1024 }
+    private companion object { const val BUDGET = 32 * 1024 * 1024 }
 }
 
-internal fun composeLyricBlur(request: LyricBlurComposite.Request, low: Image, high: Image?, fraction: Float): Image {
-    val info = ImageInfo(request.width, request.height, ColorType.RGBA_F16, ColorAlphaType.PREMUL)
+internal fun composeLyricBlur(request: LyricBlurComposite.Request, mask: Image): Image {
+    val info = ImageInfo(request.sampledWidth, request.sampledHeight, ColorType.RGBA_F16, ColorAlphaType.PREMUL)
     return Surface.makeRaster(info).use { surface ->
-        val bounds = SkiaRect.makeWH(request.width.toFloat(), request.height.toFloat())
+        val bounds = SkiaRect.makeWH(request.sampledWidth.toFloat(), request.sampledHeight.toFloat())
         Paint().use { shadow ->
             if (request.shadow > 0 && request.shadowAlpha > 0) ImageFilter.makeDropShadow(0f, 0f,
-                request.shadow.toFloat(), request.shadow.toFloat(), request.shadowAlpha shl 24).use { shadow.imageFilter = it }
+                request.shadow.toFloat() / request.scale, request.shadow.toFloat() / request.scale,
+                request.shadowAlpha shl 24).use { shadow.imageFilter = it }
             val canvas = surface.canvas
             canvas.saveLayer(Canvas.SaveLayerRec(bounds, shadow, null, null,
                 Canvas.SaveLayerFlags(Canvas.SaveLayerFlagsSet.F16ColorType)))
@@ -120,13 +124,7 @@ internal fun composeLyricBlur(request: LyricBlurComposite.Request, low: Image, h
                 ColorFilter.makeBlend(request.color, BlendMode.SRC_IN).use { tint ->
                     Paint().use { paint ->
                         paint.colorFilter = tint
-                        paint.setAlphaf(1f - fraction)
-                        canvas.drawImageRect(low, lyricBlurImageBounds(low), bounds, SamplingMode.LINEAR, paint, true)
-                        if (high != null) {
-                            paint.blendMode = BlendMode.PLUS
-                            paint.setAlphaf(fraction)
-                            canvas.drawImageRect(high, lyricBlurImageBounds(high), bounds, SamplingMode.LINEAR, paint, true)
-                        }
+                        canvas.drawImageRect(mask, lyricBlurImageBounds(mask), bounds, SamplingMode.LINEAR, paint, true)
                     }
                 }
             } finally { canvas.restore() }

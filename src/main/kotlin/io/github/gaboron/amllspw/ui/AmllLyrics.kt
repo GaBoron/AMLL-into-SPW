@@ -165,12 +165,10 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
                         translate(margin + row.inset, paintY)
                         scale(scale, scale, pivot)
                     }) {
-                        // Fade individual voices here; the viewport mask fades their final blurred pixels.
-                        val native = drawContext.canvas.skiaCanvas
-                        val paint = if (rowOpacity < .999f) org.jetbrains.skia.Paint().apply { alpha = (rowOpacity * 255).toInt() } else null
-                        if (paint != null) native.saveLayer(row.layerBounds, paint)
-                        try { with(painter) { paintLine(row, position, options, voice.highlight.value, lyricColor, voice.blur.radius, rowViewport) } }
-                        finally { if (paint != null) { native.restore(); paint.close() } }
+                        with(painter) {
+                            paintLine(row, position, options, voice.highlight.value, lyricColor,
+                                voice.blur.radius, rowViewport, rowOpacity)
+                        }
                     }
                     hits += ViewportMotion.Hit(bounds, row.line.startMs)
                     rowY += row.height

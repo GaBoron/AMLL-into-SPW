@@ -19,11 +19,7 @@ internal class LyricGaussianBlur {
 
     fun applyAlpha(alpha: ByteArray, width: Int, height: Int, sigma: Float): Mask {
         require(alpha.size == width * height)
-        val scale = when {
-            sigma >= 6.75f -> 4
-            sigma >= 3.25f -> 2
-            else -> 1
-        }
+        val scale = sampleScale(sigma)
         // Reduced masks retain at least 1.6 texels of Gaussian softness, allowing
         // inexpensive bilinear reconstruction without visible sampling blocks.
         val sampledWidth = (width + scale - 1) / scale
@@ -74,6 +70,12 @@ internal class LyricGaussianBlur {
     }
 
     companion object {
+        fun sampleScale(sigma: Float): Int = when {
+            sigma >= 6.75f -> 4
+            sigma >= 3.25f -> 2
+            else -> 1
+        }
+
         fun rgba(alpha: ByteArray): ByteArray {
             val input = ByteBuffer.wrap(alpha).order(ByteOrder.nativeOrder()).asShortBuffer()
             val output = ByteArray(alpha.size * 4)
@@ -125,6 +127,7 @@ internal class LyricGaussianBlur {
 /** A small scale space is enough for a continuous focus transition; no per-frame kernels. */
 internal object LyricBlurLevels {
     private val radii = floatArrayOf(0f, .5f, 1f, 1.5f, 2.25f, 3.25f, 4.75f, 6.75f, 9f, MAX_LYRIC_BLUR_RADIUS)
+    val count: Int get() = radii.size
 
     data class Blend(val lower: Int, val fraction: Float) {
         val upper: Int get() = if (fraction > 0f) lower + 1 else lower
