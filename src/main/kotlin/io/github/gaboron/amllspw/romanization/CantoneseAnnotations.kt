@@ -40,9 +40,12 @@ internal class CantoneseAnnotations(private val readings: CantoneseReadings = Ca
 
     private fun annotate(line: LyricLine): List<LyricAnnotation> {
         val spans = readings.analyze(line.text)
-        val generated = if (line.romanization.isNotBlank())
-            JyutpingAlignment.match(line.text, spans, line.romanization) ?: return emptyList()
-        else spans.filter { it.roman.isNotBlank() }.map {
+        val supplied = line.romanization.takeIf(String::isNotBlank)?.let {
+            JyutpingAlignment.match(line.text, spans, it)
+        }
+        // Prefer dictionary ruby over uncertain line-level spellings. The renderer hides
+        // the supplied line once ruby is present, without changing the original lyric file.
+        val generated = supplied ?: spans.filter { it.roman.isNotBlank() }.map {
             LyricAnnotation(it.start, it.end, listOf(LyricSyllable(it.roman)))
         }
         val existing = line.rubyAnnotations()
