@@ -28,8 +28,18 @@ internal class AmllPreferences : AutoCloseable {
     @Volatile var onAnnotationChange: (() -> Unit)? = null
     private val listener = Consumer<ConfigHelper> { if (it.reload()) refresh(it) }
     init {
-        manager.addConfigChangeListener(FILE, listener)
-        refresh(manager.getConfig(FILE))
+        try {
+            manager.addConfigChangeListener(FILE, listener)
+            refresh(manager.getConfig(FILE))
+        } catch (error: Throwable) {
+            synchronized(gate) {
+                closed = true
+                generation++
+            }
+            closePluginResources(AutoCloseable { manager.removeConfigChangeListener(listener) },
+                AutoCloseable(::closeFontLoader), cause = error)
+            throw error
+        }
     }
 
     fun reload() {
@@ -92,9 +102,15 @@ internal class AmllPreferences : AutoCloseable {
             generation++
         }
         onAnnotationChange = null
-        manager.removeConfigChangeListener(listener)
-        fontWorker.execute { fontLoader.close() }
-        fontWorker.shutdown()
+        closePluginResources(AutoCloseable { manager.removeConfigChangeListener(listener) }, AutoCloseable(::closeFontLoader))
+    }
+
+    private fun closeFontLoader() {
+        try {
+            fontWorker.execute { fontLoader.close() }
+        } finally {
+            fontWorker.shutdown()
+        }
     }
     private fun decode(c: ConfigHelper) = RenderOptions(
         blur = c.get("blur", true), scale = c.get("scale", true), glow = c.get("glow", true),

@@ -201,5 +201,13 @@ internal class AmllRuntime : AutoCloseable {
         if (closed) return
         runCatching { worker.execute { if (!closed) runCatching(action).onFailure { System.err.println("AMLL: ${it.message}") } } }
     }
-    override fun close() { closed = true; covers.close(); inbox.close(); footerInbox.close(); worker.shutdownNow(); preferences.close(); mutablePresentation.value = LyricsPresentation() }
+    @Synchronized
+    override fun close() {
+        if (closed) return
+        closed = true
+        preferences.onAnnotationChange = null
+        mutablePresentation.value = LyricsPresentation()
+        closePluginResources(AutoCloseable { worker.shutdownNow() }, covers,
+            AutoCloseable { inbox.close() }, AutoCloseable { footerInbox.close() }, preferences)
+    }
 }

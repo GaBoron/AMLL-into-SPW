@@ -11,10 +11,13 @@ class AmllPlugin(context: PluginContext) : SpwPlugin(context) {
     private var active: AmllRuntime? = null
     private var bridge: TtmlBridge? = null
     private var footerBridge: FooterBridge? = null
+    private var cleanupFailure: Throwable? = null
 
     @OptIn(UnstableSpwWorkshopApi::class)
+    @Synchronized
     override fun start() {
         if (active != null) return
+        check(cleanupFailure == null) { "上次停用未能完整清理，请重启 SPW 后再启用 AMLL into SPW" }
         require(WorkshopApi.manager.isPermissionGranted(PluginPermission.CLASS_TRANSFORM) &&
             WorkshopApi.manager.isPermissionGranted(PluginPermission.LIBRARY_READ)) { "请授权修改宿主界面和读取曲库后启用 AMLL into SPW" }
         val target = NativeLyricsTarget.discover()
@@ -31,25 +34,54 @@ class AmllPlugin(context: PluginContext) : SpwPlugin(context) {
             footerBridge = FooterBridge(FooterReceiver(created))
             created.start()
         } catch (e: Throwable) {
-            footerBridge?.close(); footerBridge = null
-            bridge?.close(); bridge = null
-            current = null; active = null
-            handle?.close(); handle = null; created.close(); throw e
+            release(created, e)
+            throw e
         }
     }
 
+    @Synchronized
     override fun stop() {
         val old = active ?: return
-        if (current === old) current = null
-        footerBridge?.close(); footerBridge = null
-        bridge?.close(); bridge = null
-        handle?.close(); handle = null
-        active = null; old.close()
+        release(old)
+    }
+
+    private fun release(runtime: AmllRuntime, failure: Throwable? = null) {
+        if (current === runtime) current = null
+        active = null
+        val resources = arrayOf(runtime, footerBridge, bridge, handle)
+        footerBridge = null
+        bridge = null
+        handle = null
+        val previousFailures = failure?.suppressed?.size ?: 0
+        try {
+            closePluginResources(*resources, cause = failure)
+        } catch (error: Throwable) {
+            cleanupFailure = error
+            throw error
+        } finally {
+            // An uncertain unhook/unregister must not be followed by a second live session.
+            if (failure != null && failure.suppressed.size > previousFailures)
+                cleanupFailure = failure.suppressed.last()
+        }
     }
     override fun update() = stop()
     override fun delete() = stop()
 
     companion object { @Volatile internal var current: AmllRuntime? = null; private set }
+}
+
+/** Detach ownership first and attempt every release, preserving the original startup failure. */
+internal fun closePluginResources(vararg resources: AutoCloseable?, cause: Throwable? = null) {
+    var failure = cause
+    for (resource in resources) {
+        try {
+            resource?.close()
+        } catch (error: Throwable) {
+            if (failure == null) failure = error
+            else if (failure !== error) failure.addSuppressed(error)
+        }
+    }
+    if (cause == null) failure?.let { throw it }
 }
 
 /** PF4J constructs extensions independently; this bridge is active only for the plugin lifetime. */
