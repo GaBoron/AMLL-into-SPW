@@ -30,4 +30,6 @@ Kuromoji 及其未修改的 IPADIC 词典随包提供；Apache-2.0 许可证见 
 
 SPW Workshop API、Kotlin、Compose、Skia 和 Skiko 由宿主提供，不随插件重复打包。Gradle Wrapper 使用 Apache-2.0 许可证。
 
+`romanization/jyutping.tsv` 由 Cantonese Computational Linguistics Infrastructure Development Workgroup（CanCLID）的 [ToJyutping 3.2.0](https://github.com/CanCLID/ToJyutping/tree/a692787e9af65b27310580604b1d69b96b2165be) 中的 `src/ToJyutping/trie.txt` 转换，采用 BSD-2-Clause 许可证，Copyright (c) 2024 Cantonese Computational Linguistics Infrastructure Development Workgroup。转换将压缩读音编号解码为文本、展开为排序 TSV，并仅保留可逐字符对应的词条；保留原词条的读音及候选顺序，共 48,262 条（含 30,206 个单字）。`CantoneseReadings.kt` 使用该数据离线进行最长词组匹配，未嵌入 Python 运行时。原许可证随包置于 `licenses/ToJyutping-BSD-2-Clause.txt`；词典不适用本项目的 AGPL-3.0-only 许可证。
+
 内置字体为 Adobe [思源黑体 SC（Source Han Sans SC）2.005](https://github.com/adobe-fonts/source-han-sans/releases/tag/2.005R)，使用官方未修改的 `SourceHanSansSC-VF.ttf` 可变字体（字重轴 250–900）。Copyright 2014–2025 Adobe，采用 SIL Open Font License 1.1，保留字体内嵌版权信息与保留字体名称；原许可证见 `licenses/OFL-1.1-Source-Han-Sans.txt`。该字体不适用本项目的 AGPL-3.0-only 许可证。

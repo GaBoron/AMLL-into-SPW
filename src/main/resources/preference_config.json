@@ -17,6 +17,10 @@
           "summary": "为日语歌词补充逐字罗马注音；需开启音译与注音显示，读音可能不准确。"
         },
         {
+          "type": "switch", "key": "automatic_cantonese_ruby", "title": "自动生成逐字粤语注音（实验性）", "default_value": false,
+          "summary": "按歌曲语言元数据识别粤语，离线生成带声调数字的粤拼；需开启音译与注音显示，读音可能不准确。"
+        },
+        {
           "type": "switch", "key": "hide_passed", "title": "隐藏已唱过的歌词", "default_value": false,
           "summary": "唱完的歌词渐隐；暂停或手动浏览时重新显示。"
         },

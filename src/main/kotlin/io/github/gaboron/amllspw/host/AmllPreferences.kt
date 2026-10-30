@@ -80,7 +80,8 @@ internal class AmllPreferences : AutoCloseable {
                 }
             }
         }
-        if (previous.automaticJapaneseRuby != next.automaticJapaneseRuby || previous.romanization != next.romanization)
+        if (previous.automaticJapaneseRuby != next.automaticJapaneseRuby ||
+            previous.automaticCantoneseRuby != next.automaticCantoneseRuby || previous.romanization != next.romanization)
             onAnnotationChange?.invoke()
     }
 
@@ -103,6 +104,7 @@ internal class AmllPreferences : AutoCloseable {
         translation = c.get("translation", true),
         romanization = c.get("romanization", true), reducedMotion = c.get("reduced_motion", false),
         automaticJapaneseRuby = c.get("automatic_japanese_ruby", false),
+        automaticCantoneseRuby = c.get("automatic_cantonese_ruby", false),
         coloredLyrics = c.get("colored_lyrics", false),
         typography = LyricTypography.fromPreferences(c.get("font_weight", LyricFontWeight.DEFAULT.value), c.get("font_size", "auto")),
     )

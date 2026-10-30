@@ -3,21 +3,26 @@ package io.github.gaboron.amllspw.host
 import io.github.gaboron.amllspw.lyrics.LyricLine
 import io.github.gaboron.amllspw.romanization.HostRomanization
 import io.github.gaboron.amllspw.romanization.JapaneseReadings
+import io.github.gaboron.amllspw.romanization.CantoneseReadings
+import io.github.gaboron.amllspw.romanization.JyutpingAlignment
 import java.text.Normalizer
 import java.util.Locale
 
 /** Separates supplied SPL/LRC readings from the host's merged secondary text at load time. */
-internal class HostSecondaryLyrics(private val readings: JapaneseReadings = JapaneseReadings()) {
+internal class HostSecondaryLyrics(
+    private val readings: JapaneseReadings = JapaneseReadings(),
+    private val cantoneseReadings: CantoneseReadings = CantoneseReadings(),
+) {
     private var readingFailureReported = false
 
-    fun split(lines: List<LyricLine>): List<LyricLine> {
+    fun split(lines: List<LyricLine>, cantonese: Boolean = false): List<LyricLine> {
         // Track-wide kana evidence also covers Kanji-only rows, without loading a Japanese
         // dictionary for Chinese tracks that happen to contain an English translation.
         val japanese = lines.any { hasKana(Normalizer.normalize(it.text, Normalizer.Form.NFKC)) }
-        return lines.map { split(it, japanese) }
+        return lines.map { split(it, japanese, cantonese) }
     }
 
-    fun split(line: LyricLine, japanese: Boolean = false): LyricLine {
+    fun split(line: LyricLine, japanese: Boolean = false, cantonese: Boolean = false): LyricLine {
         if (line.romanization.isNotBlank() || line.translation.isBlank() ||
             line.text.length !in 1..512 || line.translation.length > 16_384) return line
         val text = Normalizer.normalize(line.text, Normalizer.Form.NFKC)
@@ -38,9 +43,11 @@ internal class HostSecondaryLyrics(private val readings: JapaneseReadings = Japa
             }
         }
         val korean = if (hasHangul && !hasKana && hanCount == 0) koreanSpelling(text) else null
+        val cantoneseReading by lazy { runCatching { cantoneseReadings.analyze(line.text) }.getOrDefault(emptyList()) }
         val (romanization, translation) = line.translation.lines().partition { value ->
             latinReading(value) && when {
                 hasHangul -> korean != null && letters(value) == korean
+                cantonese && !hasKana -> JyutpingAlignment.match(line.text, cantoneseReading, value) != null
                 hasKana || japanese -> HostRomanization.matches(line.text, japaneseReading, value)
                 else -> markedPinyin(text, value, hanCount)
             }

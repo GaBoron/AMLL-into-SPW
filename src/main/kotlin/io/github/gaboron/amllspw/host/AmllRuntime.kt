@@ -13,6 +13,8 @@ import io.github.gaboron.amllspw.poetry.PoetryCatalog
 import io.github.gaboron.amllspw.poetry.TrackPoems
 import io.github.gaboron.amllspw.romanization.JapaneseAnnotations
 import io.github.gaboron.amllspw.romanization.JapaneseReadings
+import io.github.gaboron.amllspw.romanization.CantoneseAnnotations
+import io.github.gaboron.amllspw.romanization.CantoneseReadings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.nio.file.Path
@@ -29,8 +31,12 @@ internal class AmllRuntime : AutoCloseable {
     private val local = LocalLyricsReader()
     private val covers = CoverPaletteReader()
     private val readings = JapaneseReadings()
-    private val hostLyrics = HostLyricsAdapter(HostSecondaryLyrics(readings))
+    private val cantoneseReadings = CantoneseReadings()
+    private val hostLyrics = HostLyricsAdapter(HostSecondaryLyrics(readings, cantoneseReadings))
     private val annotations = JapaneseAnnotations(readings)
+    private val cantoneseAnnotations = CantoneseAnnotations(cantoneseReadings)
+    private val languageReader = AudioLanguageReader()
+    private var audioLanguages: List<String> = emptyList()
     private val inbox = TtmlInbox()
     private val footerInbox = FooterInbox(::currentIdentity)
     private val poems by lazy { TrackPoems(PoetryCatalog.load()) }
@@ -128,7 +134,17 @@ internal class AmllRuntime : AutoCloseable {
 
     private fun select(media: PlaybackExtensionPoint.MediaItem, reload: Boolean = false) {
         val next = "${media.id}|${media.path}"
-        if (initialized && next == key && !reload) return
+        val options = preferences.options.value
+        val languages = if (options.automaticCantoneseRuby && options.romanization)
+            languageReader.read(Path.of(media.path)) else emptyList()
+        if (initialized && next == key && !reload) {
+            if (languages != audioLanguages) {
+                audioLanguages = languages
+                refreshDocument(media)
+            }
+            return
+        }
+        audioLanguages = languages
         initialized = true
         key = next
         val artwork = covers.load(media.id)
@@ -159,10 +175,13 @@ internal class AmllRuntime : AutoCloseable {
         if (currentIdentity()?.matches(TrackIdentity(media.id, media.path)) != true) {
             clear(); return
         }
-        val received = inbox.current(TrackIdentity(media.id, media.path))
-        val original = localDocument ?: received?.document ?: hostLyrics.convert(WorkshopApi.playback.getLyricsLines())
         val options = preferences.options.value
-        val document = annotations.apply(original, options.automaticJapaneseRuby && options.romanization)
+        val received = inbox.current(TrackIdentity(media.id, media.path))
+        val original = localDocument ?: received?.document ?: hostLyrics.convert(WorkshopApi.playback.getLyricsLines(),
+            cantonese = options.automaticCantoneseRuby && options.romanization && CantoneseAnnotations.isCantonese(audioLanguages))
+        val document = if (options.automaticCantoneseRuby && CantoneseAnnotations.isCantonese(original, audioLanguages))
+            cantoneseAnnotations.apply(original, options.romanization, audioLanguages)
+        else annotations.apply(original, options.automaticJapaneseRuby && options.romanization)
         val offset = if (localDocument != null) 0 else received?.offsetMs ?: 0
         if (!closed && currentIdentity()?.matches(TrackIdentity(media.id, media.path)) == true) {
             val next = mutablePresentation.value.copy(document = document, offsetMs = offset,
@@ -173,6 +192,7 @@ internal class AmllRuntime : AutoCloseable {
     }
     private fun clear() {
         key = ""; initialized = false; localDocument = null; inbox.close()
+        audioLanguages = emptyList()
         footerInbox.current(null)
         if (currentIdentity() == null) clock.clear()
         if (!closed) mutablePresentation.value = LyricsPresentation()

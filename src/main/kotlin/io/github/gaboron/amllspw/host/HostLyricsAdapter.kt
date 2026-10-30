@@ -7,7 +7,7 @@ import io.github.gaboron.amllspw.lyrics.LyricWord
 
 /** Uses the host's SPL/LRC decoder; only information actually present is carried into TTML. */
 internal class HostLyricsAdapter(private val secondary: HostSecondaryLyrics = HostSecondaryLyrics()) {
-    fun convert(source: List<HostLine>): LyricDocument {
+    fun convert(source: List<HostLine>, cantonese: Boolean = false): LyricDocument {
         val sourceCells = source.map { line ->
             // Instant separators/punctuation are still source text. Dropping them would
             // discard every valid word timestamp in an otherwise timed line.
@@ -30,6 +30,6 @@ internal class HostLyricsAdapter(private val secondary: HostSecondaryLyrics = Ho
             else listOf(LyricWord(line.pureMainText, start, end, timed = false))
             LyricLine(start, end, words, translation = line.pureSubText.orEmpty(), group = index)
         }.sortedBy { it.startMs }
-        return LyricDocument(secondary.split(lines), LyricDocument.Origin.HOST)
+        return LyricDocument(secondary.split(lines, cantonese), LyricDocument.Origin.HOST)
     }
 }
