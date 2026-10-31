@@ -42,7 +42,9 @@ internal class LyricTextBlur : AutoCloseable {
     private val gaussian = LyricGaussianBlur()
     private val composites = LyricBlurComposite(worker, ::isAlive, ::buildComposite)
     private val blend = LyricTextureBlend()
-    private val imagePaint = Paint()
+    // A8 masks take their ink color from this paint. Match the worker's white source
+    // before tinting, otherwise a cache miss briefly draws black instead of lyric ink.
+    private val imagePaint = Paint().apply { color = Color.White.toArgb() }
     private val effects = LinkedHashMap<EffectKey, Paint>(32, .75f, true)
     @Volatile private var closed = false
 
