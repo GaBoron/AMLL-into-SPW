@@ -45,7 +45,7 @@ internal class LyricStaggerSpacing {
         fun project(index: Int, ahead: Float, delay: Float = delays[index]): Float {
             val wait = if (free[index]) 0f else (delay - elapsed).coerceAtLeast(0f)
             val startsIn = ceil(wait / step) * step
-            return positions[index].preview(targets[index], step + ahead, destinations[index], startsIn, step)
+            return positions[index].preview(targets[index], step + ahead, destinations[index], startsIn)
         }
         fun pairOverlaps(upper: Int, lower: Int, delay: Float): Boolean = samples.any { sample ->
             val ahead = ceil(sample / step) * step

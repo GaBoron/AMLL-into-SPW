@@ -127,42 +127,26 @@ internal class ViewportMotion {
         }
         previousLayout = geometry
         val seeking = now < seekUntil
+        // Retained voices may rebound through the viewport margin; only the actual edge
+        // is a stop, rather than the voice's final resting position.
         val minimumY = FloatArray(groups.size) { index ->
             if (active[index] && index < focusIndex && !overflow.latestOnly && !seeking && !manual)
-                (followGeometry.tops[index] - followOffset).takeIf { it >= 0f } ?: Float.NEGATIVE_INFINITY
+                0f.takeIf { followGeometry.tops[index] - followOffset >= 0f } ?: Float.NEGATIVE_INFINITY
             else Float.NEGATIVE_INFINITY
         }
         val targets = FloatArray(groups.size) { geometry.tops[it] - offset }
         val free = BooleanArray(groups.size) { seeking || active[it] || manual }
         val scrollStiffness = stiffness * exitCohort.stiffnessScale(focusIndex, timeMs, rows.map { it.y }, targets,
             height, !first && !seek && !immediate && !manual && !footerFocused && playing != false && interludeBefore == null)
-        rows.forEach { it.y.configure(if (seeking) 90f else scrollStiffness, if (seeking) 15f else sqrt(scrollStiffness) * 2.2f) }
-        val extents = groups.mapIndexed { index, group -> lyricRowExtent(group, rows[index].backgroundSlide.value) { voice ->
-            val state = rows[index].voices[voice]
-            state.opacity.value * state.visibility.value * overflow.rows[index].opacity > .01f
-        } }
-        val elapsed = (now - focusStamp) / 1e9f
-        staggerSpacing.update(rows.map { it.y }, targets, extents, motionFocus, elapsed, dt, height, free,
-            !first && !immediate && !manual && !footerFocused, layoutShifts)
-        val collapsing = overflow.rows.any { it.collapsing }
-        val coupled = staggerSpacing.requiresCoupling || collapsing
-        // Empty slots keep their spring geometry, but must not push incoming text away
-        // from retained voices while a completed, fully faded paragraph is folding.
-        val spacingHeights = FloatArray(groups.size) { index ->
-            if (overflow.rows[index].opacity <= .001f) 0f else geometry.heights[index]
-        }
-        val bulkPositions = scrollSpring.update(geometry.tops, spacingHeights, rows.map { it.y }, focusIndex,
-            offset, dt, !first && !immediate && !manual && !footerFocused, coupled, scrollStiffness, minimumY, collapsing,
-            layoutShifts)
-        currentOffset = offset
+        val motionStiffness = if (seeking) 90f else scrollStiffness
+        // A damping ratio of .72 gives one restrained rebound (about 4%) per line change.
+        val motionDamping = if (seeking) 15f else sqrt(motionStiffness) * 1.44f
+        rows.forEach { it.y.configure(motionStiffness, motionDamping) }
+        // Collision bounds must match the text painted on this frame, including voices
+        // restored by a seek and the first visible frame of a backing-voice fade.
         rows.forEachIndexed { index, row ->
             row.overflowOpacity = overflow.rows[index].opacity
             row.overflowScale = overflow.rows[index].scale
-            val target = staggerSpacing.target(index, targets[index], elapsed, free[index] || bulkPositions != null)
-            if (bulkPositions != null) row.y.transfer(bulkPositions[index],
-                if (dt > 0f) (bulkPositions[index] - row.y.value) / dt else row.y.velocity)
-            else if (first || immediate) row.y.snap(target)
-            else row.y.update(target, dt)
             val scale = if (active[index]) 1f else .97f
             if (first || seek || immediate) row.scale.snap(scale)
             else row.scale.update(scale, dt)
@@ -176,11 +160,30 @@ internal class ViewportMotion {
                 else { voice.scale.update(voiceScale, dt); voice.opacity.update(opacity, dt) }
             }
         }
+        val extents = groups.mapIndexed { index, group -> lyricRowExtent(group, rows[index].backgroundSlide.value) { voice ->
+            val state = rows[index].voices[voice]
+            state.opacity.value * state.visibility.value * overflow.rows[index].opacity > .01f
+        } }
+        val elapsed = (now - focusStamp) / 1e9f
+        staggerSpacing.update(rows.map { it.y }, targets, extents, motionFocus, elapsed, dt, height, free,
+            !first && !immediate && !manual && !footerFocused, layoutShifts)
+        val collapsing = overflow.rows.any { it.collapsing }
+        val coupled = staggerSpacing.requiresCoupling || collapsing
+        val bulkMotion = scrollSpring.update(geometry.tops, extents, rows.map { it.y }, focusIndex,
+            offset, dt, !first && !immediate && !manual && !footerFocused, coupled, motionStiffness, motionDamping, minimumY,
+            layoutShifts)
+        currentOffset = offset
+        rows.forEachIndexed { index, row ->
+            val target = staggerSpacing.target(index, targets[index], elapsed, free[index] || bulkMotion != null)
+            if (bulkMotion != null) row.y.transfer(bulkMotion.positions[index], bulkMotion.velocities[index])
+            else if (first || immediate) row.y.snap(target)
+            else row.y.update(target, dt)
+        }
         val footerStagger = (abs(groups.size - motionFocus) * 45L).coerceAtMost(270) * 1_000_000
         // Seeks retarget the current footer animation; only disabling motion skips transitions.
         footer.update(geometry.footerTop - offset, footerHeight > 0, footerFocused,
             if (!footerBlurEnabled || footerFocused || manual) 0f else (1 + groups.size - focusIndex).coerceAtMost(5).toFloat(),
-            height, dt, immediate, if (seeking) 90f else stiffness, if (seeking) 15f else sqrt(stiffness) * 2.2f,
+            height, dt, immediate, motionStiffness, motionDamping,
             first || seeking || manual || now - focusStamp >= footerStagger)
         // The slot moves with the following row, including manual scroll and follow return.
         // A separate spring can arrive first and paint the dots over lyrics still in transit.
