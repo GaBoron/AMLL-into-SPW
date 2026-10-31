@@ -14,10 +14,13 @@ internal class LyricStaggerSpacing {
     var requiresCoupling = false; private set
 
     fun update(positions: List<SpringMotion>, targets: FloatArray, extents: List<LyricRowExtent?>,
-        nextFocus: Int, elapsed: Float, dt: Float, height: Float, free: BooleanArray, enabled: Boolean): FloatArray {
+        nextFocus: Int, elapsed: Float, dt: Float, height: Float, free: BooleanArray, enabled: Boolean,
+        layoutShifts: FloatArray): FloatArray {
         if (destinations.size != positions.size) {
             destinations = targets.copyOf()
             waiting = BooleanArray(positions.size)
+        } else {
+            destinations.indices.forEach { destinations[it] += layoutShifts[it] }
         }
         if (focus != nextFocus || delays.size != positions.size) {
             val previous = delays

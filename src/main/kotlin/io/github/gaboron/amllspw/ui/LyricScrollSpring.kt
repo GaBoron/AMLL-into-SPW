@@ -14,7 +14,7 @@ internal class LyricScrollSpring {
 
     fun update(tops: FloatArray, heights: FloatArray, positions: List<SpringMotion>, focus: Int,
         targetOffset: Float, dt: Float, enabled: Boolean, coupled: Boolean, stiffness: Float,
-        minimumY: FloatArray, collapsing: Boolean): FloatArray? {
+        minimumY: FloatArray, collapsing: Boolean, layoutShifts: FloatArray): FloatArray? {
         if (!enabled || (active && residuals.size != positions.size)) {
             active = false; finishingCollapse = false; return null
         }
@@ -34,7 +34,9 @@ internal class LyricScrollSpring {
         } else {
             val shift = tops[focus] - previousTops[focus]
             offset.value += shift
-            residuals.forEachIndexed { index, row -> row.value += shift - (tops[index] - previousTops[index]) }
+            residuals.forEachIndexed { index, row ->
+                row.value += layoutShifts[index] + shift - (tops[index] - previousTops[index])
+            }
         }
         previousTops = tops.copyOf()
         offset.configure(stiffness, 2f * sqrt(stiffness))

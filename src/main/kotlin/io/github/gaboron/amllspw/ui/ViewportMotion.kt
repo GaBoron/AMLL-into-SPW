@@ -23,6 +23,7 @@ internal class ViewportMotion {
     var interludeY: Float? = null; private set
     val footer = LyricFooterMotion()
     private var rows = emptyList<RowMotion>()
+    private var previousLayout: LyricGeometry? = null
     private var exitCohort = LyricExitCohort(emptyList())
     private var focus = -1
     private var focusStamp = 0L
@@ -109,6 +110,22 @@ internal class ViewportMotion {
         val layoutShift = if (footerFocused) geometry.footerTop - followGeometry.footerTop
             else geometry.tops[focusIndex] - followGeometry.tops[focusIndex]
         val offset = if (manual) manualOffset.coerceIn(-height * .65f, maxOffset) else followOffset + layoutShift
+        // Slot reveal/collapse already animates the layout. Carry that displacement into
+        // every scroll coordinate instead of making another spring chase the same change.
+        val previous = previousLayout
+        val layoutShifts = FloatArray(groups.size)
+        if (!first && !seek && !immediate && previous != null) {
+            val anchorShift = when {
+                manual -> 0f
+                footerFocused -> geometry.footerTop - previous.footerTop
+                else -> geometry.tops[focusIndex] - previous.tops[focusIndex]
+            }
+            rows.forEachIndexed { index, row ->
+                layoutShifts[index] = geometry.tops[index] - previous.tops[index] - anchorShift
+                row.y.value += layoutShifts[index]
+            }
+        }
+        previousLayout = geometry
         val seeking = now < seekUntil
         val minimumY = FloatArray(groups.size) { index ->
             if (active[index] && index < focusIndex && !overflow.latestOnly && !seeking && !manual)
@@ -126,7 +143,7 @@ internal class ViewportMotion {
         } }
         val elapsed = (now - focusStamp) / 1e9f
         staggerSpacing.update(rows.map { it.y }, targets, extents, motionFocus, elapsed, dt, height, free,
-            !first && !immediate && !manual && !footerFocused)
+            !first && !immediate && !manual && !footerFocused, layoutShifts)
         val collapsing = overflow.rows.any { it.collapsing }
         val coupled = staggerSpacing.requiresCoupling || collapsing
         // Empty slots keep their spring geometry, but must not push incoming text away
@@ -135,7 +152,8 @@ internal class ViewportMotion {
             if (overflow.rows[index].opacity <= .001f) 0f else geometry.heights[index]
         }
         val bulkPositions = scrollSpring.update(geometry.tops, spacingHeights, rows.map { it.y }, focusIndex,
-            offset, dt, !first && !immediate && !manual && !footerFocused, coupled, scrollStiffness, minimumY, collapsing)
+            offset, dt, !first && !immediate && !manual && !footerFocused, coupled, scrollStiffness, minimumY, collapsing,
+            layoutShifts)
         currentOffset = offset
         rows.forEachIndexed { index, row ->
             row.overflowOpacity = overflow.rows[index].opacity
