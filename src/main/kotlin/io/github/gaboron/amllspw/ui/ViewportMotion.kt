@@ -112,18 +112,19 @@ internal class ViewportMotion {
         val layoutShift = if (footerFocused) geometry.footerTop - followGeometry.footerTop
             else geometry.tops[focusIndex] - followGeometry.tops[focusIndex]
         val offset = if (manual) manualOffset.coerceIn(-height * .65f, maxOffset) else followOffset + layoutShift
-        // Slot reveal/collapse already animates the layout. Carry that displacement into
-        // every scroll coordinate instead of making another spring chase the same change.
+        // Lyric reveal/collapse already animates its height and carries its displacement.
+        // Interlude insertion/removal is a new scroll target: keep screen positions and
+        // momentum intact so the outgoing lead completes its exit animation.
         val previous = previousLayout
         val layoutShifts = FloatArray(groups.size)
         if (!first && !seek && !immediate && previous != null) {
             val anchorShift = when {
                 manual -> 0f
-                footerFocused -> geometry.footerTop - previous.footerTop
-                else -> geometry.tops[focusIndex] - previous.tops[focusIndex]
+                footerFocused -> geometry.lyricHeight - previous.lyricHeight
+                else -> geometry.lyricTops[focusIndex] - previous.lyricTops[focusIndex]
             }
             rows.forEachIndexed { index, row ->
-                layoutShifts[index] = geometry.tops[index] - previous.tops[index] - anchorShift
+                layoutShifts[index] = geometry.lyricTops[index] - previous.lyricTops[index] - anchorShift
                 row.y.value += layoutShifts[index]
             }
         }
