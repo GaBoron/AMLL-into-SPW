@@ -5,7 +5,6 @@ import io.github.gaboron.amllspw.timeline.SpringMotion
 import io.github.gaboron.amllspw.timeline.ActivationEnvelope
 import io.github.gaboron.amllspw.timeline.CubicBezier
 import kotlin.math.abs
-import kotlin.math.pow
 import kotlin.math.sqrt
 
 internal class ViewportMotion {
@@ -31,7 +30,7 @@ internal class ViewportMotion {
     private var manualOffset = 0f
     private var currentOffset = 0f
     private var lastNow = System.nanoTime()
-    private var stiffness = 170f
+    private var stiffness = 76f
     private var seekUntil = 0L
     private val seekFollow = LyricSeekFollow()
     private val overflow = LyricOverflowCollapse()
@@ -96,7 +95,10 @@ internal class ViewportMotion {
         if (seek) seekUntil = now + 650_000_000
         if (motionFocus != focus) {
             val interval = if (focus in groups.indices) abs(groups[focusIndex].rows.first().line.startMs - groups[focus].rows.first().line.startMs) else 800L
-            stiffness = 170f + 50f * (1f - ((interval - 100f) / 700f).coerceIn(0f, 1f)).pow(.2f)
+            // Let ordinary lines unfold; raise the response gradually for short cadences
+            // so rapid passages can keep up without making normal transitions rush.
+            val urgency = (1f - (interval - 180f) / 620f).coerceIn(0f, 1f)
+            stiffness = 76f + 74f * urgency
             focus = motionFocus; focusStamp = now
         }
         val focal = if (footerFocused) followGeometry.footerTop + footerHeight * .5f else
