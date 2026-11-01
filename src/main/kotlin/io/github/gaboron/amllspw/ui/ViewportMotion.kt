@@ -85,7 +85,6 @@ internal class ViewportMotion {
             !manual && playing != false && interludeBefore == null, immediate,
             focus = timelineFocus.takeIf { interludeBefore == null })
         val geometry = LyricGeometry(groups, backgroundExpansion, interludeBefore, slotHeight, footerHeight, overflow.expansion)
-        val followGeometry = LyricGeometry(groups, backgroundExpansion, interludeBefore, slotHeight, footerHeight, overflow.plannedExpansion)
         val focusIndex = (if (overflow.latestOnly) groups.indexOfLast { group -> group.rows.any { it.line.startMs <= timeMs } }
             else timelineFocus).coerceIn(groups.indices)
         // Like upstream, manual browsing freezes the previous footer focus. The bottom is a
@@ -101,27 +100,31 @@ internal class ViewportMotion {
             stiffness = 76f + 74f * urgency
             focus = motionFocus; focusStamp = now
         }
-        val focal = if (footerFocused) followGeometry.footerTop + footerHeight * .5f else
-            followGeometry.interludeTop?.let { it + slotHeight / 2 } ?: (followGeometry.tops[focusIndex] + followGeometry.mainHeights[focusIndex] * .35f)
+        val focal = if (footerFocused) geometry.footerTop + footerHeight * .5f else
+            geometry.interludeTop?.let { it + slotHeight / 2 } ?: (geometry.tops[focusIndex] + geometry.mainHeights[focusIndex] * .35f)
         val aligned = focal - height * .35f
         val maxOffset = if (footerHeight > 0) maxOf(0f, geometry.totalHeight - height * .35f) else maxOf(0f, geometry.tops.last())
-        val followOffset = if (overflow.latestOnly) aligned else lyricScrollAnchor(groups, followGeometry, timeMs, height, aligned,
+        val followOffset = if (overflow.latestOnly) aligned else lyricScrollAnchor(groups, geometry, timeMs, height, aligned,
             focus = focusIndex.takeIf { !footerFocused && interludeBefore == null })
-        // Keep the focused row at its planned screen position while completed slots close.
-        // Their changing prefix height is a layout shift, not a second scroll animation.
-        val layoutShift = if (footerFocused) geometry.footerTop - followGeometry.footerTop
-            else geometry.tops[focusIndex] - followGeometry.tops[focusIndex]
-        val offset = if (manual) manualOffset.coerceIn(-height * .65f, maxOffset) else followOffset + layoutShift
+        val offset = if (manual) manualOffset.coerceIn(-height * .65f, maxOffset) else followOffset
         // Lyric reveal/collapse already animates its height and carries its displacement.
         // Interlude insertion/removal is a new scroll target: keep screen positions and
         // momentum intact so the outgoing lead completes its exit animation.
         val previous = previousLayout
         val layoutShifts = FloatArray(groups.size)
         if (!first && !seek && !immediate && previous != null) {
+            fun lyricOffset(layout: LyricGeometry): Float {
+                val preferred = layout.lyricTops[focusIndex] + layout.mainHeights[focusIndex] * .35f - height * .35f
+                return if (overflow.latestOnly) preferred else
+                    lyricScrollAnchor(groups, layout, timeMs, height, preferred, focusIndex, includeInterlude = false)
+            }
             val anchorShift = when {
                 manual -> 0f
                 footerFocused -> geometry.lyricHeight - previous.lyricHeight
-                else -> geometry.lyricTops[focusIndex] - previous.lyricTops[focusIndex]
+                interludeBefore != null -> geometry.lyricTops[focusIndex] - previous.lyricTops[focusIndex]
+                // Carry layout changes around the actual framing anchor, which can be a
+                // retained upper voice rather than the newest lead during a crowded passage.
+                else -> lyricOffset(geometry) - lyricOffset(previous)
             }
             rows.forEachIndexed { index, row ->
                 layoutShifts[index] = geometry.lyricTops[index] - previous.lyricTops[index] - anchorShift
@@ -134,13 +137,16 @@ internal class ViewportMotion {
         // is a stop, rather than the voice's final resting position.
         val minimumY = FloatArray(groups.size) { index ->
             if (active[index] && index < focusIndex && !overflow.latestOnly && !seeking && !manual)
-                0f.takeIf { followGeometry.tops[index] - followOffset >= 0f } ?: Float.NEGATIVE_INFINITY
+                0f.takeIf { geometry.tops[index] - followOffset >= 0f } ?: Float.NEGATIVE_INFINITY
             else Float.NEGATIVE_INFINITY
         }
         val targets = FloatArray(groups.size) { geometry.tops[it] - offset }
         val free = BooleanArray(groups.size) { seeking || active[it] || manual }
-        val scrollStiffness = stiffness * exitCohort.stiffnessScale(focusIndex, timeMs, rows.map { it.y }, targets,
-            height, !first && !seek && !immediate && !manual && !footerFocused && playing != false && interludeBefore == null)
+        val retaining = active.indices.any { it < focusIndex && active[it] }
+        val exitResponse = exitCohort.stiffnessScale(focusIndex, timeMs, rows.map { it.y }, targets,
+            height, !first && !seek && !immediate && !manual && !footerFocused && !retaining && playing != false && interludeBefore == null)
+        // Reframing several simultaneous voices is a gentle pan, not a rapid line exit.
+        val scrollStiffness = if (retaining) minOf(stiffness, 76f) else stiffness * exitResponse
         val motionStiffness = if (seeking) 90f else scrollStiffness
         // A damping ratio of .72 gives one restrained rebound (about 4%) per line change.
         val motionDamping = if (seeking) 15f else sqrt(motionStiffness) * 1.44f
