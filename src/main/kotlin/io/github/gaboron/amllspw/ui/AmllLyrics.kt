@@ -17,6 +17,7 @@ import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.*
 import io.github.gaboron.amllspw.timeline.LyricTimeline
 import io.github.gaboron.amllspw.timeline.FramePlaybackClock
+import io.github.gaboron.amllspw.timeline.PlaybackClock
 import io.github.gaboron.amllspw.timeline.InterludeAnimation
 import kotlin.math.*
 
@@ -25,7 +26,8 @@ import kotlin.math.*
 internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: RenderOptions, modifier: Modifier,
     onTime: () -> Long, onSeek: (Long) -> Unit, showSecondary: Boolean,
     onPlaying: () -> Boolean? = { null }, onSeekGeneration: () -> Long = { 0 },
-    bottomContent: LyricFooterContent? = null, onPlaybackRate: () -> Float? = { null }) {
+    bottomContent: LyricFooterContent? = null, onPlaybackRate: () -> Float? = { null },
+    onPlaybackSample: (() -> PlaybackClock.Sample)? = null) {
     val measurer = rememberTextMeasurer(cacheSize = 1_024)
     val painter = remember(measurer) { LyricLinePainter(measurer) }
     DisposableEffect(painter) { onDispose { painter.close() } }
@@ -40,12 +42,13 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
     val pointer = remember(viewport) { LyricPointerState() }
     val timeline = remember(presentation.document) { LyricTimeline(presentation.document) }
     val interlude = remember(presentation.trackKey, presentation.document, presentation.offsetMs) { InterludeAnimation() }
-    val preciseTime by rememberUpdatedState(onTime)
+    // The host supplies position/state/rate/generation from one synchronized read.
+    // Standalone surfaces can continue to provide the individual callbacks.
+    val readPlayback by rememberUpdatedState(onPlaybackSample ?: {
+        PlaybackClock.Sample(onTime(), onPlaying(), onSeekGeneration(), onPlaybackRate())
+    })
     val seekTo by rememberUpdatedState(onSeek)
     val offsetMs by rememberUpdatedState(presentation.offsetMs)
-    val playingState by rememberUpdatedState(onPlaying)
-    val seekGeneration by rememberUpdatedState(onSeekGeneration)
-    val sourceRate by rememberUpdatedState(onPlaybackRate)
     val clock = remember(presentation.trackKey, presentation.document, presentation.offsetMs) { FramePlaybackClock() }
     val density = LocalDensity.current
     var frameTime by remember { mutableLongStateOf(0L) }
@@ -88,8 +91,9 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
         val nanos = frameTime
         val dt = if (cache.lastFrame == 0L) 0f else ((nanos - cache.lastFrame) / 1e9f).coerceIn(0f, .064f)
         cache.lastFrame = nanos
-        val playing = playingState()
-        val hostPosition = clock.sample(preciseTime(), nanos, playing, seekGeneration(), sourceRate())
+        val playback = readPlayback()
+        val playing = playback.playing
+        val hostPosition = clock.sample(playback.positionMs, nanos, playing, playback.seekGeneration, playback.playbackRate)
         val position = (hostPosition - presentation.offsetMs).coerceAtLeast(0)
         val seek = clock.discontinuity
         val fontSize = options.typography.fontSize(size.width / density.density)

@@ -86,7 +86,14 @@ internal class AmllRuntime : AutoCloseable {
     fun seekTo(trackKey: String, position: Long) {
         val current = currentIdentity() ?: return
         if (trackKey.isEmpty() || trackKey != "${current.id}|${current.path}" || presentation.value.trackKey != trackKey) return
-        WorkshopApi.playback.seekTo(position.coerceAtLeast(0))
+        val target = position.coerceAtLeast(0)
+        clock.expectSeek(trackKey, target)
+        try {
+            WorkshopApi.playback.seekTo(target)
+        } catch (error: Throwable) {
+            clock.cancelExpectedSeek(trackKey, target)
+            throw error
+        }
     }
 
     fun nextPoem(trackKey: String) = enqueue {

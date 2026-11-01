@@ -1,5 +1,7 @@
 package io.github.gaboron.amllspw.timeline
 
+import kotlin.math.abs
+
 /** Phase-locks coarse host samples to the display clock without rewinding on each sample. */
 internal class FramePlaybackClock {
     private var lastFrame = -1L
@@ -31,9 +33,17 @@ internal class FramePlaybackClock {
             if (running && frameNanos - sampleStamp <= 1_500_000_000) value += dtMs * (rate + correction).coerceAtLeast(0.0)
             if (raw != lastSample) {
                 sampleStamp = frameNanos
-                // A rate change may create phase error; correct it continuously instead of
-                // reporting a seek and resetting every word, interlude and viewport spring.
-                correction = ((raw - value) / 120.0).coerceIn(-rate, rate * 2)
+                val error = raw - value
+                if (abs(error) > maxOf(180.0, rate * 120.0)) {
+                    // A delayed/discontinuous source sample must re-anchor once, rather
+                    // than sprinting ahead and then waiting for the audio to catch up.
+                    value = raw.toDouble()
+                    correction = 0.0
+                } else {
+                    // Correct small phase error without stopping a running display clock
+                    // or resetting every word, interlude and viewport spring.
+                    correction = (error / 240.0).coerceIn(-rate * .2, rate * .2)
+                }
             }
         }
         lastFrame = frameNanos; lastSample = raw; generation = seekGeneration
