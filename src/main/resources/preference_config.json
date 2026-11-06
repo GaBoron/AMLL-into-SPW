@@ -31,6 +31,10 @@
           "summary": "为韩文音节离线生成逐字罗马注音；需开启音译与注音显示，读音可能不准确。"
         },
         {
+          "type": "switch", "key": "automatic_vocal_roles", "title": "自动识别对唱与背景歌词（实验性）", "default_value": false,
+          "summary": "识别角色姓名、跨行角色标记和括号背景歌词；可能误判，已有声部标记优先。"
+        },
+        {
           "type": "switch", "key": "hide_passed", "title": "隐藏已唱过的歌词", "default_value": false,
           "summary": "唱完的歌词渐隐；暂停或手动浏览时重新显示。"
         },

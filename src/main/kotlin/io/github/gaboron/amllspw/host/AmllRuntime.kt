@@ -198,10 +198,11 @@ internal class AmllRuntime : AutoCloseable {
         val native = if (received?.selected == true) received.document else localDocument ?: received?.document
         val original = native ?: hostLyrics.convert(WorkshopApi.playback.getLyricsLines(),
             cantonese = options.automaticCantoneseRuby && CantoneseAnnotations.isCantonese(audioLanguages))
+        val voiced = AutomaticVocals.apply(original, options.automaticVocalRoles)
         // Visibility belongs to rendering: keep annotations attached while their old layout fades out.
-        val annotated = if (options.automaticCantoneseRuby && CantoneseAnnotations.isCantonese(original, audioLanguages))
-            cantoneseAnnotations.apply(original, true, audioLanguages)
-        else annotations.apply(original, options.automaticJapaneseRuby)
+        val annotated = if (options.automaticCantoneseRuby && CantoneseAnnotations.isCantonese(voiced, audioLanguages))
+            cantoneseAnnotations.apply(voiced, true, audioLanguages)
+        else annotations.apply(voiced, options.automaticJapaneseRuby)
         val document = koreanAnnotations.apply(annotated, options.automaticKoreanRuby)
         val offset = if (native != null && native === received?.document) received.offsetMs else 0
         if (!closed && currentIdentity()?.matches(TrackIdentity(media.id, media.path)) == true) {
