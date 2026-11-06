@@ -88,12 +88,14 @@ internal class LyricContentTransition(initial: RenderOptions) {
 
 private class ContentVisibility(visible: Boolean) {
     private var wasVisible = visible
+    private var returning = false
+    private val criticalDamping = 2f * sqrt(LYRIC_CONTENT_SPRING_STIFFNESS)
     private val fade = ActivationEnvelope(if (visible) 1f else 0f,
         .28f, .28f, CubicBezier(.25f, .1f, .25f, 1f))
     private val spring = SpringMotion(if (visible) 1f else 0f, LYRIC_CONTENT_SPRING_STIFFNESS,
-        2f * sqrt(LYRIC_CONTENT_SPRING_STIFFNESS) * LYRIC_CONTENT_SPRING_DAMPING_RATIO)
+        criticalDamping * LYRIC_CONTENT_SPRING_DAMPING_RATIO)
     val opacity: Float get() = fade.value
-    // Reflect closing overshoot at zero: the reserved slot visibly rebounds without negative sizes.
+    // Fold the single closing rebound into positive height; opacity stays independent.
     val expansion: Float get() = abs(spring.value).coerceAtMost(1.32f)
 
     fun settled(visible: Boolean): Boolean {
@@ -103,17 +105,28 @@ private class ContentVisibility(visible: Boolean) {
 
     fun update(visible: Boolean, dt: Float, options: RenderOptions) {
         val target = if (visible) 1f else 0f
-        val startingHide = wasVisible && !visible
-        wasVisible = visible
+        if (wasVisible != visible) {
+            wasVisible = visible
+            returning = false
+            spring.configure(LYRIC_CONTENT_SPRING_STIFFNESS, criticalDamping * LYRIC_CONTENT_SPRING_DAMPING_RATIO)
+        }
         fade.update(visible, dt, options.reducedMotion)
         if (options.reducedMotion || !options.spring) {
+            returning = false
+            spring.configure(LYRIC_CONTENT_SPRING_STIFFNESS, criticalDamping * LYRIC_CONTENT_SPRING_DAMPING_RATIO)
             spring.snap(fade.value)
             return
         }
-        // A settled open slot stretches briefly before closing. Reversals in flight keep their momentum.
-        if (startingHide && spring.value == 1f && spring.velocity == 0f) spring.transfer(1f, 8f)
         spring.update(target, dt)
-        // Once closing reaches zero, keep the ink hidden throughout the layout's remaining rebounds.
+        val displacement = spring.value - target
+        val overshot = if (visible) displacement > 0f else displacement < 0f
+        // Both directions get the same first rebound, then a critically damped return.
+        // Keep the sampled position and velocity so the change in damping introduces no jump.
+        if (!returning && overshot && displacement * spring.velocity <= 0f) {
+            returning = true
+            spring.configure(LYRIC_CONTENT_SPRING_STIFFNESS, criticalDamping)
+        }
+        // Once closing reaches zero, keep the ink hidden while the layout returns to rest.
         if (!visible && spring.value <= 0f) fade.update(false, 0f, true)
         if (abs(spring.value - target) < .0005f && abs(spring.velocity) < .005f) spring.snap(target)
     }
