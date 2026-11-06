@@ -5,5 +5,7 @@ interface TtmlReceiverMBean {
     fun getProtocolVersion(): Int
     fun isActive(): Boolean
     fun submitTtml(trackId: String, audioPath: String, ttml: String, offsetMs: Long): Boolean
+    /** Active host selection; empty TTML follows host SPL/LRC and overrides local TTML discovery. */
+    fun selectLyrics(trackId: String, audioPath: String, ttml: String, offsetMs: Long): Boolean
     fun clearTtml(trackId: String, audioPath: String): Boolean
 }

@@ -114,6 +114,13 @@ internal class AmllRuntime : AutoCloseable {
         return inbox.clear(track).also { if (it) lyricsChanged() }
     }
 
+    fun selectLyrics(track: TrackIdentity, xml: String, offsetMs: Long): Boolean {
+        if (!isActive) return false
+        val accepted = inbox.select(track, xml, offsetMs, ::currentIdentity)
+        if (accepted) lyricsChanged()
+        return accepted && !closed
+    }
+
     fun receiveFooter(providerId: String?, providerName: String?, track: TrackIdentity,
         keys: Array<out String?>?, values: Array<out String?>?): Boolean {
         if (!isActive) return false
@@ -184,12 +191,13 @@ internal class AmllRuntime : AutoCloseable {
         }
         val options = preferences.options.value
         val received = inbox.current(TrackIdentity(media.id, media.path))
-        val original = localDocument ?: received?.document ?: hostLyrics.convert(WorkshopApi.playback.getLyricsLines(),
+        val native = if (received?.selected == true) received.document else localDocument ?: received?.document
+        val original = native ?: hostLyrics.convert(WorkshopApi.playback.getLyricsLines(),
             cantonese = options.automaticCantoneseRuby && options.romanization && CantoneseAnnotations.isCantonese(audioLanguages))
         val document = if (options.automaticCantoneseRuby && CantoneseAnnotations.isCantonese(original, audioLanguages))
             cantoneseAnnotations.apply(original, options.romanization, audioLanguages)
         else annotations.apply(original, options.automaticJapaneseRuby && options.romanization)
-        val offset = if (localDocument != null) 0 else received?.offsetMs ?: 0
+        val offset = if (native != null && native === received?.document) received.offsetMs else 0
         if (!closed && currentIdentity()?.matches(TrackIdentity(media.id, media.path)) == true) {
             val next = mutablePresentation.value.copy(document = document, offsetMs = offset,
                 footer = footerInbox.current(TrackIdentity(media.id, media.path)),

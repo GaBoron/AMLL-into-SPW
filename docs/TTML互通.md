@@ -17,15 +17,18 @@ ObjectName：`io.github.gaboron.amllspw:type=TtmlReceiver,version=1`
 | `ProtocolVersion` | 只读 `int`，当前为 `1` |
 | `Active` | 只读 `boolean`，接收器是否启用 |
 | `submitTtml(String trackId, String audioPath, String ttml, long offsetMs)` | 返回 `boolean`，只接受当前歌曲的有效原始 TTML |
+| `selectLyrics(String trackId, String audioPath, String ttml, long offsetMs)` | 返回 `boolean`，声明宿主当前采用的歌词来源；TTML 优先于本地发现，空字符串表示跟随宿主解析的歌词 |
 | `clearTtml(String trackId, String audioPath)` | 返回 `boolean`，撤回当前歌曲的外部 TTML，回退到本地 TTML 或宿主歌词 |
 
 `trackId` 使用 Workshop API 的 `MediaItem.id`，未提供时允许空字符串。`audioPath` 必须填写 `MediaItem.path`；两端 ID 均非空时，ID 和规范化路径必须同时匹配。Windows 路径不区分大小写。
 
-`ttml` 必须是未经 SPL 转换的完整 XML。上限为 4,000,000 个字符，禁用 DTD 和外部实体。`offsetMs` 是发送端的额外单曲偏移：正数延后显示，负数提前显示，范围为 ±86,400,000 毫秒。XML 时间戳保持原值；不要先给 XML 加同一份偏移，也不要再次传入 SPW 全局歌词偏移。
+`submitTtml` 的 `ttml` 必须是未经 SPL 转换的完整 XML。上限为 4,000,000 个字符，禁用 DTD 和外部实体。`offsetMs` 是发送端的额外单曲偏移：正数延后显示，负数提前显示，范围为 ±86,400,000 毫秒。XML 时间戳保持原值；不要先给 XML 加同一份偏移，也不要再次传入 SPW 全局歌词偏移。
 
 `submitTtml` 会读取当前歌曲并解析 XML，必须在后台线程调用。返回 `true` 表示原始 TTML 已被接受；本地 TTML 优先时不代表外部歌词会立即显示。返回 `false` 或发生 JMX 调用异常时，应继续既有的 SPL/普通歌词流程。接收器会拒收换歌后的迟到结果、无效 XML、空时间轴和超限输入。重复提交同一首歌是允许的。`clearTtml` 返回 `false` 也可能只是没有对应的外部歌词可撤回。
 
-优先级为：**同名 `.ttml` → 音频标签中的 TTML → 同名 `.lrc` 中的 TTML → 本接口的 TTML → SPW 已解析的 SPL/LRC**。本地 TTML 优先级不受外部提交影响。`offsetMs` 只应用于本接口提供的 TTML。
+`submitTtml` 的优先级为：**同名 `.ttml` → 音频标签中的 TTML → 同名 `.lrc` 中的 TTML → 本接口的 TTML → SPW 已解析的 SPL/LRC**。`offsetMs` 只应用于本接口提供的 TTML。
+
+控制宿主歌词来源的插件应使用 `selectLyrics` 同步同一选择。它覆盖本地 TTML 发现；`ttml` 为有效 XML 时显示该原文，为空字符串时跟随宿主 SPL/LRC（包括清空后的空歌词），偏移为 0。撤回时调用 `clearTtml`。该操作是协议 1 的可选扩展，发送端通过 MBeanInfo 检测；旧接收器可回退到 `submitTtml`，但无法保证覆盖其本地 TTML。
 
 ## 通用调用模板
 

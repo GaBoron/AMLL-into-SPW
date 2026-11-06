@@ -9,4 +9,6 @@ internal class TtmlReceiver(private val runtime: AmllRuntime) : TtmlReceiverMBea
         isActive() && runtime.receiveTtml(TrackIdentity(trackId, audioPath), ttml, offsetMs)
     override fun clearTtml(trackId: String, audioPath: String): Boolean =
         isActive() && runtime.clearTtml(TrackIdentity(trackId, audioPath))
+    override fun selectLyrics(trackId: String, audioPath: String, ttml: String, offsetMs: Long): Boolean =
+        isActive() && runtime.selectLyrics(TrackIdentity(trackId, audioPath), ttml, offsetMs)
 }
