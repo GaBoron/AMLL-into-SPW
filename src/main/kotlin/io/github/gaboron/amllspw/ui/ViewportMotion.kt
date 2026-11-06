@@ -72,12 +72,15 @@ internal class ViewportMotion {
             rows = groups.map { RowMotion(SpringMotion(it.top), it.rows.map { VoiceMotion() }) }
             exitCohort = LyricExitCohort(groups)
         }
+        // A seek changes the targets, not the current animation samples. Only the first
+        // layout or explicitly disabled motion bypasses the reveal/fade/scale transitions.
+        val snap = first || immediate
         val active = groups.map { group -> timeMs >= group.rows.minOf { it.line.startMs } && timeMs < group.rows.maxOf { it.line.endMs } }
         rows.forEachIndexed { index, row ->
             row.expanded = active[index] || manual || playing == false
             val slide = if (row.expanded) 0f else -80f
             row.backgroundSlide.configure(225f, 30f)
-            if (first || seek || immediate) row.backgroundSlide.snap(slide) else row.backgroundSlide.updateBounded(slide, dt)
+            if (snap) row.backgroundSlide.snap(slide) else row.backgroundSlide.updateBounded(slide, dt)
         }
         val backgroundExpansion = rows.map { 1f + it.backgroundSlide.value / 80f }
         val timelineFocus = activeGroup.coerceIn(groups.indices)
@@ -159,15 +162,15 @@ internal class ViewportMotion {
             row.overflowOpacity = overflow.rows[index].opacity
             row.overflowScale = overflow.rows[index].scale
             val scale = if (active[index]) 1f else .97f
-            if (first || seek || immediate) row.scale.snap(scale)
+            if (snap) row.scale.snap(scale)
             else row.scale.update(scale, dt)
             row.voices.forEachIndexed { voiceIndex, voice ->
                 val line = groups[index].rows[voiceIndex].line
                 val voiceScale = if (line.background && !active[index]) .75f else 1f
                 val opacity = if (!line.background) 1f else if (row.expanded) .4f else 0f
-                voice.highlight.update(active[index], dt, first || seek || immediate)
-                voice.visibility.update(!hidePassed || timeMs < groups[index].rows.maxOf { it.line.endMs }, dt, first || seek || immediate)
-                if (first || seek || immediate) { voice.scale.snap(voiceScale); voice.opacity.snap(opacity) }
+                voice.highlight.update(active[index], dt, snap)
+                voice.visibility.update(!hidePassed || timeMs < groups[index].rows.maxOf { it.line.endMs }, dt, snap)
+                if (snap) { voice.scale.snap(voiceScale); voice.opacity.snap(opacity) }
                 else { voice.scale.update(voiceScale, dt); voice.opacity.update(opacity, dt) }
             }
         }

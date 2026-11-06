@@ -35,9 +35,16 @@ internal class LyricOverflowCollapse {
     val expansion: List<Float> get() = rows.map { it.expansion }
 
     fun prepare(count: Int, seek: Boolean) {
-        if (rows.size != count || seek) {
+        val changed = rows.size != count
+        if (changed) {
             rows = List(count) { Row() }
             planned = BooleanArray(count)
+        }
+        if (changed || seek) {
+            // Re-evaluate which rows fit after a jump, while unfolding from their current
+            // spring progress instead of replacing a partly hidden row with a visible one.
+            rows.forEach { it.hidden = false }
+            planned.fill(false)
             cooldown = 0f
             latestOnly = false
         }
