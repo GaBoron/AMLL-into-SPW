@@ -15,6 +15,7 @@ import io.github.gaboron.amllspw.romanization.JapaneseAnnotations
 import io.github.gaboron.amllspw.romanization.JapaneseReadings
 import io.github.gaboron.amllspw.romanization.CantoneseAnnotations
 import io.github.gaboron.amllspw.romanization.CantoneseReadings
+import io.github.gaboron.amllspw.romanization.KoreanAnnotations
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.nio.file.Path
@@ -35,6 +36,7 @@ internal class AmllRuntime : AutoCloseable {
     private val hostLyrics = HostLyricsAdapter(HostSecondaryLyrics(readings, cantoneseReadings))
     private val annotations = JapaneseAnnotations(readings)
     private val cantoneseAnnotations = CantoneseAnnotations(cantoneseReadings)
+    private val koreanAnnotations = KoreanAnnotations()
     private val languageReader = AudioLanguageReader()
     private var audioLanguages: List<String> = emptyList()
     private val inbox = TtmlInbox()
@@ -195,9 +197,10 @@ internal class AmllRuntime : AutoCloseable {
         val original = native ?: hostLyrics.convert(WorkshopApi.playback.getLyricsLines(),
             cantonese = options.automaticCantoneseRuby && CantoneseAnnotations.isCantonese(audioLanguages))
         // Visibility belongs to rendering: keep annotations attached while their old layout fades out.
-        val document = if (options.automaticCantoneseRuby && CantoneseAnnotations.isCantonese(original, audioLanguages))
+        val annotated = if (options.automaticCantoneseRuby && CantoneseAnnotations.isCantonese(original, audioLanguages))
             cantoneseAnnotations.apply(original, true, audioLanguages)
         else annotations.apply(original, options.automaticJapaneseRuby)
+        val document = koreanAnnotations.apply(annotated, options.automaticKoreanRuby)
         val offset = if (native != null && native === received?.document) received.offsetMs else 0
         if (!closed && currentIdentity()?.matches(TrackIdentity(media.id, media.path)) == true) {
             val next = mutablePresentation.value.copy(document = document, offsetMs = offset,

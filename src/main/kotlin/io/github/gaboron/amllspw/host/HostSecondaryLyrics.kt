@@ -5,6 +5,8 @@ import io.github.gaboron.amllspw.romanization.HostRomanization
 import io.github.gaboron.amllspw.romanization.JapaneseReadings
 import io.github.gaboron.amllspw.romanization.CantoneseReadings
 import io.github.gaboron.amllspw.romanization.JyutpingAlignment
+import io.github.gaboron.amllspw.romanization.KoreanReadings
+import io.github.gaboron.amllspw.romanization.KoreanRomanizationAlignment
 import java.text.Normalizer
 import java.util.Locale
 
@@ -42,11 +44,12 @@ internal class HostSecondaryLyrics(
                 emptyList()
             }
         }
-        val korean = if (hasHangul && !hasKana && hanCount == 0) koreanSpelling(text) else null
+        val koreanReading by lazy { KoreanReadings.analyze(line.text) }
         val cantoneseReading by lazy { runCatching { cantoneseReadings.analyze(line.text) }.getOrDefault(emptyList()) }
         val (romanization, translation) = line.translation.lines().partition { value ->
             latinReading(value) && when {
-                hasHangul -> korean != null && letters(value) == korean
+                hasHangul -> !hasKana && hanCount == 0 &&
+                    KoreanRomanizationAlignment.match(line.text, koreanReading, value) != null
                 cantonese && !hasKana -> JyutpingAlignment.match(line.text, cantoneseReading, value) != null
                 hasKana || japanese -> HostRomanization.matches(line.text, japaneseReading, value)
                 else -> markedPinyin(text, value, hanCount)
@@ -72,32 +75,6 @@ internal class HostSecondaryLyrics(
         return syllables.size == hanCount && syllables.all { pinyinSyllable.matches(it) }
     }
 
-    private fun letters(value: String): String = Normalizer.normalize(value, Normalizer.Form.NFKC)
-        .lowercase(Locale.ROOT).filter { it in 'a'..'z' || it.isDigit() }
-
-    private fun koreanSpelling(text: String): String? = buildString {
-        for ((index, char) in text.withIndex()) {
-            if (char in '\uac00'..'\ud7a3') {
-                val syllable = char.code - 0xac00
-                append(koreanInitials[syllable / 588])
-                append(koreanVowels[syllable / 28 % 21])
-                val next = text.getOrNull(index + 1)?.takeIf { it in '\uac00'..'\ud7a3' }?.let { it.code - 0xac00 }
-                val final = syllable % 28
-                // A final consonant joins a following vowel-initial syllable. Its spelling
-                // differs from the unreleased consonant at a word boundary (한국어 / hangugeo).
-                val spelling = if (next != null && next / 588 == 11) {
-                    if (next / 28 % 21 == 20 && (final == 7 || final == 25)) {
-                        if (final == 7) "j" else "ch"
-                    } else koreanLinkedFinals[final]
-                } else koreanFinals[final]
-                append(spelling)
-            } else if (char.isLetterOrDigit()) {
-                if (char !in 'a'..'z' && char !in 'A'..'Z' && !char.isDigit()) return null
-                append(char.lowercaseChar())
-            }
-        }
-    }
-
     companion object {
         private val combiningMarks = Regex("\\p{M}")
         private val toneNumber = Regex("[A-Za-züÜ][1-5](?:\\b|$)")
@@ -106,11 +83,5 @@ internal class HostSecondaryLyrics(
             "(?:zh|ch|sh|[bpmfdtnlgkhjqxrzcswy])?" +
                 "(?:a|o|e|ai|ei|ao|ou|an|en|ang|eng|ong|i|ia|ie|iao|iu|ian|in|iang|ing|iong|u|ua|uo|uai|ui|uan|un|uang|ueng|ue|er|v|ve)[1-5]?"
         )
-        // Direct modern Hangul syllable spellings only; pronunciation changes that cannot
-        // be established from these spellings are left as secondary text.
-        private val koreanInitials = listOf("g", "kk", "n", "d", "tt", "r", "m", "b", "pp", "s", "ss", "", "j", "jj", "ch", "k", "t", "p", "h")
-        private val koreanVowels = listOf("a", "ae", "ya", "yae", "eo", "e", "yeo", "ye", "o", "wa", "wae", "oe", "yo", "u", "wo", "we", "wi", "yu", "eu", "ui", "i")
-        private val koreanFinals = listOf("", "k", "k", "ks", "n", "nj", "nh", "t", "l", "lk", "lm", "lp", "ls", "lt", "lp", "lh", "m", "p", "ps", "t", "t", "ng", "t", "t", "k", "t", "p", "h")
-        private val koreanLinkedFinals = listOf("", "g", "kk", "ks", "n", "nj", "n", "d", "r", "lg", "lm", "lb", "ls", "lt", "lp", "r", "m", "b", "bs", "s", "ss", "ng", "j", "ch", "k", "t", "p", "")
     }
 }
