@@ -18,7 +18,7 @@ internal class LyricPointerState {
     private var lastPosition: Offset? = null
     private var lastActivityNanos = 0L
 
-    fun onMouseInput(position: Offset, pressed: Boolean, scrolled: Boolean = false,
+    fun onPointerInput(position: Offset, pressed: Boolean, scrolled: Boolean = false,
         nowNanos: Long = System.nanoTime()) {
         // Keep the physical position after expiry so repeated stationary events cannot
         // reactivate the highlight as lyrics move beneath the pointer.
@@ -52,8 +52,9 @@ internal fun Modifier.lyricHover(state: LyricPointerState): Modifier = pointerIn
                 if (event.type == PointerEventType.Exit) {
                     state.reset()
                 } else {
-                    event.changes.firstOrNull { it.type == PointerType.Mouse }?.let {
-                        state.onMouseInput(it.position, it.pressed, event.type == PointerEventType.Scroll)
+                    event.changes.firstOrNull()?.let {
+                        if (it.type == PointerType.Touch && !it.pressed) state.reset()
+                        else state.onPointerInput(it.position, it.pressed, event.type == PointerEventType.Scroll)
                     }
                 }
             }

@@ -65,6 +65,7 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
     Canvas(modifier.fillMaxSize().clipToBounds().lyricHover(pointer)
         .pointerHoverIcon(if (hovering) PointerIcon.Hand else PointerIcon.Default)
         .scrollable(scroll, Orientation.Vertical)
+        .lyricPointerScroll(scroll)
         .pointerInput(viewport) {
             detectTapGestures(onTap = { point ->
                 viewport.hits.firstOrNull { it.bounds.contains(point) }?.let {

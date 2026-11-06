@@ -58,6 +58,7 @@ internal fun InstrumentalPoetrySurface(poem: Poem, options: RenderOptions, lyric
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     val scroll = rememberScrollState()
                     Column(Modifier.widthIn(max = 520.dp).fillMaxWidth().verticalScroll(scroll)
+                        .lyricPointerScroll(scroll, reverseDirection = true)
                         .pointerInput(current) { detectTapGestures(onDoubleTap = { nextPoem() }) }
                         .onKeyEvent {
                             if (it.type == KeyEventType.KeyDown && it.key in listOf(Key.Enter, Key.NumPadEnter, Key.Spacebar)) {
@@ -116,8 +117,10 @@ private fun CenteredInstrumental(options: RenderOptions, color: Color, headingSi
             val footerSize = minOf(lyricFooterFontSize(headingSize), with(density) {
                 footerHeight.toSp().value / 1.6f
             }).coerceAtLeast(1f)
+            val scroll = rememberScrollState()
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = maxHeight * .06f)
-                .heightIn(max = footerHeight).verticalScroll(rememberScrollState())) {
+                .heightIn(max = footerHeight).verticalScroll(scroll)
+                .lyricPointerScroll(scroll, reverseDirection = true)) {
                 InstrumentalFooter(footer, options, color, footerSize, leadingGap = false)
             }
         }

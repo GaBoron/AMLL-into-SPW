@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.unit.IntOffset
@@ -17,6 +16,7 @@ import androidx.compose.ui.window.PopupPositionProvider
 import com.xuncorp.spw.workshop.api.WorkshopApi
 import io.github.gaboron.amllspw.ui.LyricsPresentation
 import io.github.gaboron.amllspw.ui.RenderOptions
+import io.github.gaboron.amllspw.ui.lyricContextMenuGesture
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.awt.datatransfer.StringSelection
@@ -35,25 +35,8 @@ internal fun LyricsContextMenu(runtime: AmllRuntime, menu: NativeLyricsMenu?, pr
             else reportMenuFailure("当前 SPW 版本的菜单组件不可用")
         }
     })
-    Box(modifier.fillMaxSize().pointerInput(Unit) {
-        awaitPointerEventScope {
-            var secondary = false
-            while (true) {
-                val event = awaitPointerEvent(PointerEventPass.Initial)
-                if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
-                    secondary = true
-                    event.changes.firstOrNull()?.position?.let {
-                        open(IntOffset(it.x.roundToInt(), it.y.roundToInt()))
-                    }
-                }
-                if (secondary) {
-                    // Consume before the child tap detectors, including the release: right-click
-                    // must never seek, resume following, or change the instrumental poem.
-                    event.changes.forEach { it.consume() }
-                    if (!event.buttons.isSecondaryPressed) secondary = false
-                }
-            }
-        }
+    Box(modifier.fillMaxSize().lyricContextMenuGesture(presentation.trackKey to presentation.document) {
+        open(IntOffset(it.x.roundToInt(), it.y.roundToInt()))
     }) {
         content()
         val point = anchor
