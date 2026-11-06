@@ -45,7 +45,7 @@ internal fun LyricsContextMenu(runtime: AmllRuntime, menu: NativeLyricsMenu?, pr
             fun copyLyrics(translation: Boolean) {
                 jobs.launch {
                     try {
-                        LyricClipboard.copy(presentation.document.plainText(translation), clipboard)
+                        LyricClipboard.copy(presentation.document.plainText(translation, options.translationLanguage), clipboard)
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (failure: Exception) {

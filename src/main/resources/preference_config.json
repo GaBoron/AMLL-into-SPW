@@ -9,6 +9,12 @@
           "summary": "显示歌词翻译；关闭后不占行距。"
         },
         {
+          "type": "list", "key": "translation_language", "title": "显示翻译语种",
+          "entries": ["中文（优先简体）", "中文（优先繁体）", "英语", "日语", "韩语", "德语", "西班牙语", "法语", "印度尼西亚语", "葡萄牙语", "俄语", "泰语", "越南语", "意大利语", "阿拉伯语"],
+          "entry_values": ["zh-CN", "zh-TW", "en", "ja", "ko", "de", "es", "fr", "id", "pt", "ru", "th", "vi", "it", "ar"],
+          "default_value": "zh-CN", "summary": "多语种 TTML 每行只显示所选语种的一条翻译；没有对应语种时保留未标语种的翻译，否则不显示翻译。"
+        },
+        {
           "type": "switch", "key": "romanization", "title": "显示音译与注音", "default_value": true,
           "summary": "显示歌词中的音译和注音。"
         },

@@ -59,7 +59,8 @@ internal data class GroupLayout(val rows: List<LineLayout>, val top: Float, val 
 }
 
 internal fun layoutLyrics(document: LyricDocument, measurer: TextMeasurer, width: Int, fontSize: Float, showSecondary: Boolean, romanization: Boolean,
-    translation: Boolean, typography: LyricTypography = LyricTypography()): List<GroupLayout> {
+    translation: Boolean, typography: LyricTypography = LyricTypography(),
+    translationLanguage: String = TranslationSelection.DEFAULT_LANGUAGE): List<GroupLayout> {
     var top = 0f
     val hasDuet = document.lines.any { it.duet }
     val rowWidth = (width * if (hasDuet) .85f else 1f).roundToInt().coerceAtLeast(1)
@@ -112,7 +113,7 @@ internal fun layoutLyrics(document: LyricDocument, measurer: TextMeasurer, width
                 measurer.measure(AnnotatedString(romanLine), auxiliaryStyle, constraints = constraints) else null
             val rubyHeight = upper?.let { it.size.height + 5f } ?: 0f
             val secondary = if (showSecondary) listOf(
-                line.translation.takeIf { translation }.orEmpty() to true,
+                line.displayTranslation(translationLanguage).takeIf { translation }.orEmpty() to true,
                 romanLine.takeUnless { line.romanizationAbove }.orEmpty() to false,
             ).filter { it.first.isNotBlank() }.map { (text, isTranslation) ->
                 LyricAuxiliaryText(measurer.measure(AnnotatedString(text), auxiliaryStyle, constraints = constraints), isTranslation)

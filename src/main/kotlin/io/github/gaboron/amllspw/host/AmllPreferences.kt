@@ -6,6 +6,7 @@ import com.xuncorp.spw.workshop.api.config.ConfigHelper
 import io.github.gaboron.amllspw.ui.LyricFontWeight
 import io.github.gaboron.amllspw.ui.LyricTypography
 import io.github.gaboron.amllspw.ui.RenderOptions
+import io.github.gaboron.amllspw.lyrics.TranslationSelection
 import io.github.gaboron.amllspw.ui.CustomLyricFontLoader
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -139,6 +140,7 @@ internal class AmllPreferences : AutoCloseable {
         hideFooter = c.get("hide_footer", false),
         hidePoetry = c.get("hide_poetry", false),
         translation = c.get("translation", true),
+        translationLanguage = c.get("translation_language", TranslationSelection.DEFAULT_LANGUAGE),
         romanization = c.get("romanization", true), reducedMotion = c.get("reduced_motion", false),
         automaticJapaneseRuby = c.get("automatic_japanese_ruby", false),
         automaticCantoneseRuby = c.get("automatic_cantonese_ruby", false),

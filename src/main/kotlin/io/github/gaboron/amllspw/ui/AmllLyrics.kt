@@ -57,7 +57,7 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
             frameTime = it
         }
     }
-    val cache = remember(presentation.document, density, showSecondary, options.typography) { LayoutCache() }
+    val cache = remember(presentation.document, density, showSecondary, options.typography, options.translationLanguage) { LayoutCache() }
     val contentTransition = remember(presentation.trackKey) { LyricContentTransition(options) }
     val lyricColor = if (options.coloredLyrics) Color(presentation.lyricColor) else Color.White
     val scroll = rememberScrollableState { delta -> viewport.scroll(delta); delta }
@@ -112,7 +112,8 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
         val layers = weights.map { (key, opacity, layoutWeight, contentWeight) ->
             LyricLayoutLayer(key, opacity, cache.variants.getOrPut(key) {
                 layoutLyrics(presentation.document, measurer, width, fontSize, showSecondary,
-                    romanization = key.romanization, translation = key.translation, typography = options.typography)
+                    romanization = key.romanization, translation = key.translation, typography = options.typography,
+                    translationLanguage = options.translationLanguage)
             }, layoutWeight = layoutWeight, contentWeight = contentWeight)
         }
         cache.groups = blendLyricLayouts(layers)

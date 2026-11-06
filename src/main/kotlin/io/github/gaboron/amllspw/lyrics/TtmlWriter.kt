@@ -31,7 +31,14 @@ object TtmlWriter {
                     else append(" tts:ruby=\"container\"><span tts:ruby=\"base\">").append(escape(word.text))
                         .append("</span><span tts:ruby=\"text\">").append(escape(word.ruby)).append("</span></span>")
                 }
-                if (line.translation.isNotEmpty()) append("<span ttm:role=\"x-translation\">").append(escape(line.translation)).append("</span>")
+                val translations = line.translationVariants.ifEmpty {
+                    listOf(LyricTranslation("", line.translation))
+                }
+                for (translation in translations.filter { it.text.isNotEmpty() }) {
+                    append("<span ttm:role=\"x-translation\"")
+                    if (translation.language.isNotBlank()) append(" xml:lang=\"").append(escape(translation.language)).append('"')
+                    append('>').append(escape(translation.text)).append("</span>")
+                }
                 if (line.romanization.isNotEmpty()) append("<span ttm:role=\"x-roman\">").append(escape(line.romanization)).append("</span>")
                 append("</p>")
             }

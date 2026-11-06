@@ -111,14 +111,20 @@ class TtmlReader {
             }
             val secondary = secondaryOf(e)
             val attached = sidecarText.filter { it.attr("for") == e.attr("key") }
-            val translation = (secondary.filter { it.role() in TRANSLATION } + attached.filter { (it.parentNode as? Element)?.local() == "translation" })
-                .map { it.textContent }.distinct().joinToString("\n")
+            fun translations(nodes: List<Element>) = nodes.map {
+                LyricTranslation(it.translationLanguage(), it.secondaryText())
+            }.filter { it.text.isNotBlank() }.distinct()
+            val attachedTranslations = attached.filter { (it.parentNode as? Element)?.local() == "translation" }
+            val translationVariants = translations(secondary.filter { it.role() in TRANSLATION } + attachedTranslations)
             val romanization = (secondary.filter { it.role() in ROMANIZATION } + attached.filter { (it.parentNode as? Element)?.local() == "transliteration" })
                 .map { it.textContent }.distinct().joinToString("\n")
             val section = e.inherited("song-part").ifBlank { e.inherited("songPart") }
             val main = words(e, r)
-            val bg = descendants(e).filter { it.role() == "x-bg" }
-            fun line(element: Element, rr: Range, source: List<LyricWord>, background: Boolean) {
+            val bg = descendants(e).filter { node -> node.role() == "x-bg" &&
+                generateSequence(node.parentNode as? Element) { it.parentNode as? Element }
+                    .takeWhile { it !== e }.none { it.role() in SECONDARY }
+            }
+            fun line(element: Element, rr: Range, source: List<LyricWord>, background: Boolean, backgroundIndex: Int = 0) {
                 val ww = if (background) BackgroundVocalText.unwrap(source) else source
                 if (ww.none { it.text.isNotBlank() }) return
                 val ownAgent = element.inherited("agent").ifBlank { agent }
@@ -127,7 +133,16 @@ class TtmlReader {
                 val end = if (appleTiming && wordEnd != null) maxOf(rr.end.takeUnless { it == MAX_TIME } ?: wordEnd, wordEnd)
                     else if (element.hasAttribute("end") || element.hasAttribute("dur")) rr.end else wordEnd ?: rr.end
                 val ownSecondary = secondaryOf(element)
-                val ownTranslation = if (element === e) translation else ownSecondary.filter { it.role() in TRANSLATION }.joinToString("\n") { it.textContent }
+                val ownTranslations = if (element === e) translationVariants else {
+                    // A background voice can have its own key, or live inside each language's
+                    // sidecar text. Keep its text out of the main voice and preserve language.
+                    val direct = sidecarText.filter { it.attr("for") == element.attr("key") &&
+                        (it.parentNode as? Element)?.local() == "translation" }
+                    val nested = (secondary.filter { it.role() in TRANSLATION } + attachedTranslations).mapNotNull {
+                        descendants(it).filter { node -> node.role() == "x-bg" }.getOrNull(backgroundIndex)
+                    }
+                    translations(ownSecondary.filter { it.role() in TRANSLATION } + direct + nested)
+                }
                 val ownRomanization = if (element === e) romanization else ownSecondary.filter { it.role() in ROMANIZATION }.joinToString("\n") { it.textContent }
                 val inlineRoman = ownSecondary.filter { it.role() in ROMANIZATION }
                 val attachedRoman = if (element === e) attached.filter {
@@ -150,15 +165,15 @@ class TtmlReader {
                 }
                 val romanText = if (syllables.isNotEmpty()) syllables.joinToString(" ") { it.text } else
                     ownRomanization.ifBlank { romanNodes.joinToString("\n") { it.textContent } }
-                result += LyricLine(start, maxOf(start + 1, end), ww, ownTranslation,
+                result += LyricLine(start, maxOf(start + 1, end), ww, TranslationSelection.select(ownTranslations),
                     romanText, ownAgent, background,
                     ownAgent.isNotEmpty() && ownAgent != primaryAgent.ifBlank { "v1" }, id, section,
-                    romanizationSyllables = syllables)
+                    romanizationSyllables = syllables, translationVariants = ownTranslations)
             }
             line(e, r, main, e.role() == "x-bg")
-            for (element in bg) {
+            for ((index, element) in bg.withIndex()) {
                 val rr = ranges[element] ?: range(element, r)
-                line(element, rr, words(element, rr), true)
+                line(element, rr, words(element, rr), true, index)
             }
         }
 
@@ -231,6 +246,26 @@ private fun Element.attr(name: String): String {
     return ""
 }
 private fun Element.inherited(name: String): String = attr(name).ifEmpty { (parentNode as? Element)?.inherited(name).orEmpty() }
+private fun Element.translationLanguage(): String {
+    var element: Element? = this
+    while (element != null) {
+        // Legacy lyrics label the original on tt/body/p while leaving translations unlabelled.
+        // Only inherit inside the secondary-text subtree, including Apple sidecar containers.
+        if (element !== this && element.local() !in setOf("span", "text", "translation", "translations")) break
+        if (element.hasAttributeNS(XMLConstants.XML_NS_URI, "lang")) return element.getAttributeNS(XMLConstants.XML_NS_URI, "lang")
+        element = element.parentNode as? Element
+    }
+    return ""
+}
+private fun Element.secondaryText(): String = buildString {
+    fun appendText(node: Node, depth: Int) {
+        require(depth < 64) { "TTML exceeds rendering limits" }
+        if (node is Element && node !== this@secondaryText && node.role() == "x-bg") return
+        if (node.nodeType == Node.TEXT_NODE || node.nodeType == Node.CDATA_SECTION_NODE) append(node.nodeValue.orEmpty())
+        else for (i in 0 until node.childNodes.length) appendText(node.childNodes.item(i), depth + 1)
+    }
+    appendText(this@secondaryText, 0)
+}
 private fun Element.role(): String = attr("role")
 private fun Element.children(): List<Element> = (0 until childNodes.length).mapNotNull { childNodes.item(it) as? Element }
 private fun descendants(e: Element): List<Element> {
