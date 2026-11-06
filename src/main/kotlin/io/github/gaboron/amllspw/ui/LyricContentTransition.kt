@@ -3,9 +3,18 @@ package io.github.gaboron.amllspw.ui
 import io.github.gaboron.amllspw.timeline.ActivationEnvelope
 import io.github.gaboron.amllspw.timeline.CubicBezier
 import io.github.gaboron.amllspw.timeline.SpringMotion
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.unit.constrainHeight
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 internal const val LYRIC_CONTENT_SPRING_STIFFNESS = 180f
@@ -84,7 +93,13 @@ private class ContentVisibility(visible: Boolean) {
     private val spring = SpringMotion(if (visible) 1f else 0f, LYRIC_CONTENT_SPRING_STIFFNESS,
         2f * sqrt(LYRIC_CONTENT_SPRING_STIFFNESS) * LYRIC_CONTENT_SPRING_DAMPING_RATIO)
     val opacity: Float get() = fade.value
-    val expansion: Float get() = spring.value.coerceIn(0f, 1.32f)
+    // Reflect closing overshoot at zero: the reserved slot visibly rebounds without negative sizes.
+    val expansion: Float get() = abs(spring.value).coerceAtMost(1.32f)
+
+    fun settled(visible: Boolean): Boolean {
+        val target = if (visible) 1f else 0f
+        return spring.value == target && spring.velocity == 0f && fade.value == target
+    }
 
     fun update(visible: Boolean, dt: Float, options: RenderOptions) {
         val target = if (visible) 1f else 0f
@@ -98,9 +113,42 @@ private class ContentVisibility(visible: Boolean) {
         // A settled open slot stretches briefly before closing. Reversals in flight keep their momentum.
         if (startingHide && spring.value == 1f && spring.velocity == 0f) spring.transfer(1f, 8f)
         spring.update(target, dt)
-        // Collapsed slots cannot have negative height or rebound into an empty gap.
-        if ((!visible && spring.value <= 0f) ||
-            (abs(spring.value - target) < .0005f && abs(spring.velocity) < .005f)) spring.snap(target)
+        // Once closing reaches zero, keep the ink hidden throughout the layout's remaining rebounds.
+        if (!visible && spring.value <= 0f) fade.update(false, 0f, true)
+        if (abs(spring.value - target) < .0005f && abs(spring.velocity) < .005f) spring.snap(target)
+    }
+}
+
+/** Compose footer content uses the same reflected closing spring as the canvas lyrics. */
+@Composable
+internal fun LyricContentVisibility(visible: Boolean, options: RenderOptions, content: @Composable () -> Unit) {
+    val motion = remember { ContentVisibility(visible) }
+    val currentOptions by rememberUpdatedState(options)
+    var expansion by remember { mutableFloatStateOf(motion.expansion) }
+    var opacity by remember { mutableFloatStateOf(motion.opacity) }
+    LaunchedEffect(visible, options.spring, options.reducedMotion) {
+        motion.update(visible, 0f, currentOptions)
+        expansion = motion.expansion
+        opacity = motion.opacity
+        var previous = 0L
+        while (!motion.settled(visible)) {
+            withFrameNanos { now ->
+                val dt = if (previous == 0L) 0f else ((now - previous) / 1e9f).coerceIn(0f, .064f)
+                previous = now
+                motion.update(visible, dt, currentOptions)
+                expansion = motion.expansion
+                opacity = motion.opacity
+            }
+        }
+    }
+    if (!visible && expansion == 0f && opacity == 0f) return
+    Box(Modifier.clipToBounds().graphicsLayer { alpha = opacity }
+        .layout { measurable, constraints ->
+            val child = measurable.measure(constraints)
+            val height = constraints.constrainHeight((child.height * expansion).roundToInt())
+            layout(child.width, height) { child.placeRelative(0, 0) }
+        }.then(if (visible) Modifier else Modifier.clearAndSetSemantics {})) {
+        content()
     }
 }
 
