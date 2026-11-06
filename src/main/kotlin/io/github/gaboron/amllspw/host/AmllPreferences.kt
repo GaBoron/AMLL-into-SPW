@@ -47,6 +47,26 @@ internal class AmllPreferences : AutoCloseable {
         if (config.reload()) refresh(config)
     }
 
+    fun setTranslation(visible: Boolean) = saveBoolean("translation", visible, true)
+    fun setRomanization(visible: Boolean) = saveBoolean("romanization", visible, true)
+    fun setFooterVisible(visible: Boolean) = saveBoolean("hide_footer", !visible, false)
+
+    private fun saveBoolean(key: String, value: Boolean, default: Boolean) = synchronized(gate) {
+        check(!closed) { "插件已停用" }
+        val config = manager.getConfig(FILE)
+        check(config.reload()) { "歌词设置读取失败" }
+        val previous = config.get(key, default)
+        config.set(key, value)
+        try {
+            check(config.save()) { "歌词设置保存失败" }
+        } catch (failure: Exception) {
+            config.set(key, previous)
+            throw failure
+        }
+        // Publish immediately; the file watcher also keeps changes from the host settings in sync.
+        refresh(config)
+    }
+
     private fun refresh(config: ConfigHelper) {
         val next = decode(config)
         val previous: RenderOptions

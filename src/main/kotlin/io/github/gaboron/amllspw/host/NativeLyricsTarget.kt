@@ -128,7 +128,7 @@ internal data class NativeLyricsTarget(val owner: String, val method: String, va
             ArchiveRevision(it.size(), it.lastModifiedTime(), it.fileKey())
         }
 
-        private fun hostArchive(type: Class<*>): File {
+        internal fun hostArchive(type: Class<*>): File {
             val location = type.protectionDomain?.codeSource?.location
             if (location?.protocol == "file") return File(location.toURI())
 

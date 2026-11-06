@@ -38,5 +38,15 @@ data class LyricDocument(
 ) {
     enum class Origin { TTML, HOST, LRC, EMPTY }
     val durationMs = lines.maxOfOrNull { it.endMs } ?: 0L
+
+    /** Plain song text in document order, with each translation following its original line. */
+    fun plainText(includeTranslation: Boolean = false): String = buildList {
+        for (line in lines) {
+            if (line.text.isBlank()) continue
+            add(line.text)
+            if (includeTranslation && line.translation.isNotBlank()) add(line.translation)
+        }
+    }.joinToString("\n")
+
     companion object { val EMPTY = LyricDocument(emptyList(), Origin.EMPTY) }
 }
