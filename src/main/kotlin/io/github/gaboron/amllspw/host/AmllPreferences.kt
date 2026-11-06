@@ -111,7 +111,7 @@ internal class AmllPreferences : AutoCloseable {
             }
         }
         if (previous.automaticJapaneseRuby != next.automaticJapaneseRuby ||
-            previous.automaticCantoneseRuby != next.automaticCantoneseRuby || previous.romanization != next.romanization)
+            previous.automaticCantoneseRuby != next.automaticCantoneseRuby)
             onAnnotationChange?.invoke()
     }
 

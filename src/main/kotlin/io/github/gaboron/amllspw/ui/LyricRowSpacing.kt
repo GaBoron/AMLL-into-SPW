@@ -4,7 +4,7 @@ internal data class LyricRowExtent(val top: Float, val bottom: Float)
 
 /** Measure the text being painted, rather than treating all reserved spacing as occupied. */
 internal fun lyricRowExtent(group: GroupLayout, backgroundSlide: Float, visible: (Int) -> Boolean): LyricRowExtent? {
-    val background = group.rows.filter { it.line.background }.sumOf { it.height.toDouble() }.toFloat()
+    val background = group.backgroundHeight
     var rowTop = 0f
     var top = Float.POSITIVE_INFINITY
     var bottom = Float.NEGATIVE_INFINITY
@@ -12,9 +12,9 @@ internal fun lyricRowExtent(group: GroupLayout, backgroundSlide: Float, visible:
         if (visible(index)) {
             val y = rowTop + if (row.line.background) backgroundSlide.coerceIn(-80f, 0f) / 100f * background else 0f
             top = minOf(top, y)
-            bottom = maxOf(bottom, y + row.height - 10f)
+            bottom = maxOf(bottom, y + group.rowHeights[index] - 10f)
         }
-        rowTop += row.height
+        rowTop += group.rowHeights[index]
     }
     return if (top.isFinite()) LyricRowExtent(top, bottom) else null
 }

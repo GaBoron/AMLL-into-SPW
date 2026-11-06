@@ -23,7 +23,7 @@ internal class LyricGeometry(groups: List<GroupLayout>, backgroundExpansion: Lis
             }
             tops[index] = top
             lyricTops[index] = lyricTop
-            val background = group.rows.filter { it.line.background }.sumOf { it.height.toDouble() }.toFloat()
+            val background = group.backgroundHeight
             mainHeights[index] = group.height - background
             val revealed = backgroundExpansion[index].coerceIn(0f, 1f)
             backgroundOffsets[index] = -.8f * background * (1f - revealed)

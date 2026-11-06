@@ -149,7 +149,7 @@ internal class AmllRuntime : AutoCloseable {
     private fun select(media: PlaybackExtensionPoint.MediaItem, reload: Boolean = false) {
         val next = "${media.id}|${media.path}"
         val options = preferences.options.value
-        val languages = if (options.automaticCantoneseRuby && options.romanization)
+        val languages = if (options.automaticCantoneseRuby)
             languageReader.read(Path.of(media.path)) else emptyList()
         if (initialized && next == key && !reload) {
             if (languages != audioLanguages) {
@@ -193,10 +193,11 @@ internal class AmllRuntime : AutoCloseable {
         val received = inbox.current(TrackIdentity(media.id, media.path))
         val native = if (received?.selected == true) received.document else localDocument ?: received?.document
         val original = native ?: hostLyrics.convert(WorkshopApi.playback.getLyricsLines(),
-            cantonese = options.automaticCantoneseRuby && options.romanization && CantoneseAnnotations.isCantonese(audioLanguages))
+            cantonese = options.automaticCantoneseRuby && CantoneseAnnotations.isCantonese(audioLanguages))
+        // Visibility belongs to rendering: keep annotations attached while their old layout fades out.
         val document = if (options.automaticCantoneseRuby && CantoneseAnnotations.isCantonese(original, audioLanguages))
-            cantoneseAnnotations.apply(original, options.romanization, audioLanguages)
-        else annotations.apply(original, options.automaticJapaneseRuby && options.romanization)
+            cantoneseAnnotations.apply(original, true, audioLanguages)
+        else annotations.apply(original, options.automaticJapaneseRuby)
         val offset = if (native != null && native === received?.document) received.offsetMs else 0
         if (!closed && currentIdentity()?.matches(TrackIdentity(media.id, media.path)) == true) {
             val next = mutablePresentation.value.copy(document = document, offsetMs = offset,

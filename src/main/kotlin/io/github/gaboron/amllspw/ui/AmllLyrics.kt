@@ -34,9 +34,8 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
     val footerPainter = remember { LyricFooterPainter() }
     // The footer survives TextMeasurer changes, so it must own a separate disposal effect.
     DisposableEffect(footerPainter) { onDispose { footerPainter.close() } }
-    val footerContent = remember(presentation.document, presentation.footer, bottomContent, options.hideFooter) {
-        if (options.hideFooter) LyricFooterContent()
-        else bottomContent ?: LyricFooterContent.from(presentation.document, presentation.footer)
+    val footerContent = remember(presentation.document, presentation.footer, bottomContent) {
+        bottomContent ?: LyricFooterContent.from(presentation.document, presentation.footer)
     }
     val viewport = remember(presentation.trackKey, presentation.document) { ViewportMotion() }
     val pointer = remember(viewport) { LyricPointerState() }
@@ -58,7 +57,8 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
             frameTime = it
         }
     }
-    val cache = remember(presentation.document, density, showSecondary, options.translation, options.romanization, options.typography) { LayoutCache() }
+    val cache = remember(presentation.document, density, showSecondary, options.typography) { LayoutCache() }
+    val contentTransition = remember(presentation.trackKey) { LyricContentTransition(options) }
     val lyricColor = if (options.coloredLyrics) Color(presentation.lyricColor) else Color.White
     val scroll = rememberScrollableState { delta -> viewport.scroll(delta); delta }
     val hovering = pointer.position?.let { point -> viewport.hits.any { it.bounds.contains(point) } } == true
@@ -86,7 +86,7 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
             }
         }.focusable().semantics {
             contentDescription = "动态歌词，点击歌词跳转，双击回到当前歌词"
-            if (footerContent.text.isNotBlank()) text = AnnotatedString(footerContent.text)
+            if (!options.hideFooter && footerContent.text.isNotBlank()) text = AnnotatedString(footerContent.text)
             customActions = listOf(CustomAccessibilityAction("回到当前歌词") { viewport.follow(); true })
         }) {
         val nanos = frameTime
@@ -103,11 +103,23 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
         if (cache.width != width || cache.fontSize != fontSize) {
             cache.width = width
             cache.fontSize = fontSize
-            cache.groups = layoutLyrics(presentation.document, measurer, width, fontSize, showSecondary,
-                romanization = options.romanization, translation = options.translation, typography = options.typography)
+            cache.variants.clear()
             cache.footer = layoutLyricFooter(footerContent, measurer, width, fontSize, options.typography)
             cache.footerContent = footerContent
             painter.clearTextCache()
+        }
+        val weights = contentTransition.update(options, dt)
+        val layers = weights.map { (key, opacity) ->
+            LyricLayoutLayer(key, opacity, cache.variants.getOrPut(key) {
+                layoutLyrics(presentation.document, measurer, width, fontSize, showSecondary,
+                    romanization = key.romanization, translation = key.translation, typography = options.typography)
+            })
+        }
+        cache.groups = blendLyricLayouts(layers)
+        // Outgoing measurements are needed only while their ink and reserved space are fading.
+        if (weights.size == 1) cache.variants.keys.retainAll(setOf(weights.single().key))
+        val layerOptions = layers.map {
+            if (it.key.romanization == options.romanization) options else options.copy(romanization = it.key.romanization)
         }
         if (cache.footerContent != footerContent) {
             cache.footer = layoutLyricFooter(footerContent, measurer, width, fontSize, options.typography)
@@ -121,7 +133,7 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
             interval?.beforeGroup, interludeSlotHeight(fontSize * density.density, size.height), playing,
             options.hidePassed && playing != false && !viewport.isManual(nanos) && !scroll.isScrollInProgress, !options.spring || options.reducedMotion,
             clock.playbackRate,
-            footerHeight = cache.footer?.height ?: 0f,
+            footerHeight = (cache.footer?.height ?: 0f) * contentTransition.footerVisibility,
             endOfLyrics = presentation.document.lines.isNotEmpty() && position >= presentation.document.durationMs,
             footerBlurEnabled = options.blur && !options.reducedMotion && pointer.position == null)
         val manual = viewport.isManual(nanos) || scroll.isScrollInProgress
@@ -146,17 +158,18 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
                     continue
                 }
                 var rowY = y
-                val backgroundHeight = group.rows.filter { it.line.background }.sumOf { it.height.toDouble() }.toFloat()
+                val backgroundHeight = group.backgroundHeight
                 for ((voiceIndex, row) in group.rows.withIndex()) {
+                    val rowHeight = group.rowHeights[voiceIndex]
                     val voice = motion.voices[voiceIndex]
                     val visibility = voice.visibility.value * motion.overflowOpacity
                     if (voice.opacity.value < .001f || visibility < .001f) {
                         voice.blur.update(distance, clearBlur || groupActive, dt)
-                        rowY += row.height
+                        rowY += rowHeight
                         continue
                     }
                     val paintY = rowY + if (row.line.background) motion.backgroundSlide.value.coerceIn(-80f, 0f) / 100 * backgroundHeight else 0f
-                    val bounds = Rect(margin - 10, paintY, size.width - margin + 10, paintY + row.height)
+                    val bounds = Rect(margin - 10, paintY, size.width - margin + 10, paintY + rowHeight)
                     val hover = pointer.position?.let { bounds.contains(it) } == true
                     voice.hover.update(hover, dt)
                     voice.blur.update(distance, clearBlur || groupActive || hover, dt)
@@ -164,23 +177,40 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
                     val rowOpacity = voice.opacity.value.coerceIn(0f, 1f) * visibility
                     val scale = if (!options.scale || options.reducedMotion) 1f else
                         motion.scale.value * voice.scale.value * motion.overflowScale
-                    val pivot = Offset(if (row.line.duet) row.main.size.width.toFloat() else 0f, row.height / 2)
+                    val pivot = Offset(if (row.line.duet) row.main.size.width.toFloat() else 0f, rowHeight / 2)
                     val rowViewport = lyricViewportInRow(size, Offset(margin + row.inset, paintY), scale, pivot)
                     withTransform({
                         translate(margin + row.inset, paintY)
                         scale(scale, scale, pivot)
                     }) {
-                        with(painter) {
-                            paintLine(row, position, options, voice.highlight.value, lyricColor,
-                                voice.blur.radius, rowViewport, rowOpacity)
+                        val content = lyricRowContent(layers, index, voiceIndex)
+                        withLyricRowTransitionClip(layers.size > 1, rowHeight, row.emPx * 1.5f) {
+                            with(painter) {
+                                layers.forEachIndexed { layerIndex, layer ->
+                                    val layout = layer.groups[index].rows[voiceIndex]
+                                    val top = content.baseline - layout.rubyHeight - layout.main.firstBaseline
+                                    val viewport = org.jetbrains.skia.Rect.makeLTRB(rowViewport.left, rowViewport.top - top,
+                                        rowViewport.right, rowViewport.bottom - top)
+                                    translate(top = top) {
+                                        paintLine(layout, position, layerOptions[layerIndex],
+                                            voice.highlight.value, lyricColor, voice.blur.radius, viewport,
+                                            rowOpacity * layer.opacity)
+                                    }
+                                }
+                                for (auxiliary in content.auxiliary) {
+                                    paintAuxiliary(auxiliary.layout, auxiliary.top, auxiliary.height, row.emPx, voice.highlight.value,
+                                        lyricColor, voice.blur.radius, rowViewport, rowOpacity * auxiliary.opacity,
+                                        options.coloredLyrics)
+                                }
+                            }
                         }
                     }
                     hits += ViewportMotion.Hit(bounds, row.line.startMs)
-                    rowY += row.height
+                    rowY += rowHeight
                 }
             }
             viewport.hits = hits
-            with(footerPainter) { paintFooter(cache.footer, viewport.footer, margin, lyricColor) }
+            with(footerPainter) { paintFooter(cache.footer, viewport.footer, margin, lyricColor, contentTransition.footerVisibility) }
             viewport.interludeY?.let { y ->
                 val duet = interval?.beforeGroup?.let { cache.groups.getOrNull(it)?.rows?.firstOrNull()?.line?.duet } == true
                 val x = if (duet) size.width - margin - interludeWidth(fontSize * density.density) else margin
@@ -194,6 +224,7 @@ private class LayoutCache {
     var width = -1
     var fontSize = -1f
     var groups = emptyList<GroupLayout>()
+    val variants = mutableMapOf<LyricContentKey, List<GroupLayout>>()
     var footer: LyricFooterLayout? = null
     var footerContent: LyricFooterContent? = null
     var lastFrame = 0L

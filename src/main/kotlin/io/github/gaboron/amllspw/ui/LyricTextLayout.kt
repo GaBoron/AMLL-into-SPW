@@ -20,11 +20,14 @@ internal data class WordRegion(val word: LyricWord, val rects: List<Rect>, val r
         totalWidth = width
     }
 }
+internal data class LyricAuxiliaryText(val layout: TextLayoutResult, val translation: Boolean)
+internal data class LyricAuxiliaryLayer(val layout: TextLayoutResult, val top: Float, val height: Float, val opacity: Float)
+internal data class LyricRowContent(val baseline: Float, val auxiliary: List<LyricAuxiliaryLayer>)
 internal data class LineLayout(
     val line: LyricLine,
     val main: TextLayoutResult,
     val words: List<WordRegion>,
-    val auxiliary: List<TextLayoutResult>,
+    val auxiliary: List<LyricAuxiliaryText>,
     val height: Float,
     val rubyHeight: Float,
     val emPx: Float,
@@ -32,17 +35,28 @@ internal data class LineLayout(
     val rubyRuns: List<RubyRun> = emptyList(),
     val upperRomanization: TextLayoutResult? = null,
 ) {
-    // Include word float/glow and secondary text, while avoiding a viewport-sized layer per row.
+    val content = LyricRowContent(rubyHeight + main.firstBaseline, buildList {
+        var top = rubyHeight + main.size.height + 6f
+        for (text in auxiliary) {
+            val height = text.layout.size.height + 5f
+            add(LyricAuxiliaryLayer(text.layout, top, height, 1f))
+            top += height
+        }
+    })
+    // Include word float/glow and upper annotations; auxiliary text owns separate effect layers.
     private val effectPadding = maxOf(emPx * 1.5f, MAX_LYRIC_BLUR_RADIUS * 3f)
     // Text is measured at the full column width for alignment and wrapping. Only
     // its ink extent needs a blur mask or intermediate layer, including in duets.
-    private val textRows = (listOf(main) + auxiliary + listOfNotNull(upperRomanization))
+    private val textRows = (listOf(main) + listOfNotNull(upperRomanization))
         .flatMap { text -> (0 until text.lineCount).map { line -> text.getLineLeft(line) to text.getLineRight(line) } }
     val layerBounds = org.jetbrains.skia.Rect.makeLTRB(
         textRows.minOfOrNull { it.first }?.minus(effectPadding) ?: -effectPadding, -effectPadding,
-        (textRows.maxOfOrNull { it.second } ?: 0f) + effectPadding, height + effectPadding)
+        (textRows.maxOfOrNull { it.second } ?: 0f) + effectPadding, main.size.height + rubyHeight + effectPadding)
 }
-internal data class GroupLayout(val rows: List<LineLayout>, val top: Float, val height: Float)
+internal data class GroupLayout(val rows: List<LineLayout>, val top: Float, val height: Float,
+    val rowHeights: List<Float> = rows.map { it.height }) {
+    val backgroundHeight = rows.indices.filter { rows[it].line.background }.sumOf { rowHeights[it].toDouble() }.toFloat()
+}
 
 internal fun layoutLyrics(document: LyricDocument, measurer: TextMeasurer, width: Int, fontSize: Float, showSecondary: Boolean, romanization: Boolean,
     translation: Boolean, typography: LyricTypography = LyricTypography()): List<GroupLayout> {
@@ -98,12 +112,12 @@ internal fun layoutLyrics(document: LyricDocument, measurer: TextMeasurer, width
                 measurer.measure(AnnotatedString(romanLine), auxiliaryStyle, constraints = constraints) else null
             val rubyHeight = upper?.let { it.size.height + 5f } ?: 0f
             val secondary = if (showSecondary) listOf(
-                line.translation.takeIf { translation }.orEmpty(),
-                romanLine.takeUnless { line.romanizationAbove }.orEmpty(),
-            ).filter(String::isNotBlank).map {
-                measurer.measure(AnnotatedString(it), auxiliaryStyle, constraints = constraints)
+                line.translation.takeIf { translation }.orEmpty() to true,
+                romanLine.takeUnless { line.romanizationAbove }.orEmpty() to false,
+            ).filter { it.first.isNotBlank() }.map { (text, isTranslation) ->
+                LyricAuxiliaryText(measurer.measure(AnnotatedString(text), auxiliaryStyle, constraints = constraints), isTranslation)
             } else emptyList()
-            LineLayout(line, main, regions, secondary, main.size.height + rubyHeight + secondary.sumOf { it.size.height + 5 } + 10f, rubyHeight,
+            LineLayout(line, main, regions, secondary, main.size.height + rubyHeight + secondary.sumOf { it.layout.size.height + 5 } + 10f, rubyHeight,
                 ruby?.emPx ?: ((main.getLineBottom(0) - main.getLineTop(0)) / 1.24f),
                 if (line.duet) (width - rowWidth).toFloat() else 0f, ruby?.runs.orEmpty(), upper)
         }

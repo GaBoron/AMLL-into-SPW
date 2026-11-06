@@ -1,6 +1,11 @@
 package io.github.gaboron.amllspw.ui
 
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -38,7 +43,7 @@ internal fun InstrumentalPoetrySurface(poem: Poem, options: RenderOptions, lyric
     modifier: Modifier, footer: LyricFooterContent = LyricFooterContent(), onNextPoem: () -> Unit) {
     val nextPoem by rememberUpdatedState(onNextPoem)
     val color = if (options.coloredLyrics) Color(lyricColor) else Color.White
-    val footerSections = if (options.hideFooter) emptyList() else footer.sections
+    val footerSections = footer.sections
     val readingFamily = remember { FontFamily("SimSun") }
     BoxWithConstraints(modifier.fillMaxSize().clipToBounds()) {
         val headingSize = options.typography.fontSize(maxWidth.value)
@@ -145,6 +150,19 @@ private fun InstrumentalHeading(options: RenderOptions, color: Color, titleSize:
 @Composable
 private fun InstrumentalFooter(sections: List<LyricFooterSection>, options: RenderOptions, color: Color,
     footerSize: Float, leadingGap: Boolean = true) {
+    val duration = if (options.reducedMotion) 0 else 280
+    AnimatedVisibility(!options.hideFooter && sections.isNotEmpty(),
+        enter = fadeIn(tween(duration)) + expandVertically(tween(duration)),
+        exit = fadeOut(tween(duration)) + shrinkVertically(tween(duration))) {
+        Column {
+            InstrumentalFooterSections(sections, options, color, footerSize, leadingGap)
+        }
+    }
+}
+
+@Composable
+private fun InstrumentalFooterSections(sections: List<LyricFooterSection>, options: RenderOptions, color: Color,
+    footerSize: Float, leadingGap: Boolean) {
     val density = LocalDensity.current
     for ((index, section) in sections.withIndex()) {
         val gap = when {

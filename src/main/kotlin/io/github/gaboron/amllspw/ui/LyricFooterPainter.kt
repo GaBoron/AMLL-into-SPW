@@ -12,8 +12,9 @@ internal class LyricFooterPainter : AutoCloseable {
     private var closed = false
     private val textBlur = LyricTextBlur()
 
-    fun DrawScope.paintFooter(layout: LyricFooterLayout?, motion: LyricFooterMotion, left: Float, color: Color) {
-        if (layout == null || motion.y + layout.height < -60 || motion.y > size.height + 60) return
+    fun DrawScope.paintFooter(layout: LyricFooterLayout?, motion: LyricFooterMotion, left: Float, color: Color,
+        visibility: Float = 1f) {
+        if (layout == null || visibility <= 0f || motion.y + layout.height < -60 || motion.y > size.height + 60) return
         for (row in layout.rows) {
             val y = motion.y + layout.padding + row.top
             if (y + row.text.size.height < -60 || y > size.height + 60) continue
@@ -23,7 +24,7 @@ internal class LyricFooterPainter : AutoCloseable {
                     row.text.size.width + padding, row.text.size.height + padding)
                 with(textBlur) {
                     val viewport = SkiaRect.makeLTRB(-left, -y, size.width - left, size.height - y)
-                    paint(row, bounds, motion.blur, color, opacity = motion.opacity, viewport = viewport) {
+                    paint(row, bounds, motion.blur, color, opacity = motion.opacity * visibility, viewport = viewport) {
                         drawText(row.text, color = Color.White, alpha = row.opacity, topLeft = Offset.Zero)
                     }
                 }

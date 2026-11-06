@@ -49,11 +49,29 @@ internal class LyricLinePainter(private val measurer: TextMeasurer) : AutoClosea
                 }
             }
             if (options.romanization) with(ruby) { paintRuby(layout, positionMs, highlight, options, color) }
-            var auxiliaryY = layout.main.size.height + 6f
-            for (text in layout.auxiliary) {
-                drawText(text, color = color.copy(alpha = .3f + .35f * highlight), topLeft = Offset(0f, auxiliaryY))
-                auxiliaryY += text.size.height + 5
+        }
+    }
+
+    fun DrawScope.paintAuxiliary(text: TextLayoutResult, top: Float, height: Float, emPx: Float, highlight: Float,
+        color: Color, blurRadius: Float, viewport: SkiaRect, opacity: Float, colored: Boolean) {
+        if (opacity <= 0f) return
+        translate(top = top) {
+            val padding = maxOf(emPx * 1.5f, MAX_LYRIC_BLUR_RADIUS * 3f)
+            val bounds = SkiaRect.makeLTRB(-padding, -padding, text.size.width + padding, text.size.height + padding)
+            val clip = SkiaRect.makeLTRB(viewport.left, viewport.top - top, viewport.right, viewport.bottom - top)
+            val contrast = if (colored) emPx else 0f
+            val draw: DrawScope.() -> Unit = {
+                drawText(text, color = Color.White, alpha = .3f + .35f * highlight, topLeft = Offset.Zero)
             }
+            val paint: DrawScope.() -> Unit = {
+                with(textBlur) {
+                    if (highlight > 0f) paintLive(bounds, blurRadius, color, contrast, opacity, draw)
+                    else paint(text, bounds, blurRadius, color, contrast, opacity, clip, draw)
+                }
+            }
+            // Clip a collapsing slot so its remaining glyphs cannot overlap the next auxiliary line.
+            if (height < text.size.height + 5f) clipRect(-padding, -padding, text.size.width + padding, height, block = paint)
+            else paint()
         }
     }
 

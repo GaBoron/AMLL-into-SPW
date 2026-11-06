@@ -16,15 +16,15 @@ internal fun lyricVisibleSpan(groups: List<GroupLayout>, geometry: LyricGeometry
         var top = if (includeInterlude) geometry.tops[index] else geometry.lyricTops[index]
         val backgroundSlide = geometry.backgroundOffsets[index]
         val backingActive = group.rows.any { it.line.background && it.line.active(timeMs) }
-        group.rows.forEach { row ->
+        group.rows.forEachIndexed { rowIndex, row ->
             if (row.line.active(timeMs) || (!row.line.background && (backingActive || index == focus))) {
                 val y = top + if (row.line.background) backgroundSlide else 0f
                 first = minOf(first, y)
-                last = maxOf(last, y + row.height)
+                last = maxOf(last, y + group.rowHeights[rowIndex])
                 firstGroup = minOf(firstGroup, index)
                 lastGroup = maxOf(lastGroup, index)
             }
-            top += row.height
+            top += group.rowHeights[rowIndex]
         }
     }
     return if (lastGroup < 0) null else LyricVisibleSpan(first, last, firstGroup, lastGroup)
