@@ -12,6 +12,7 @@ internal data class LyricsPresentation(
     val offsetMs: Long = 0,
     val palette: List<Int> = listOf(0xff233149.toInt(), 0xff494060.toInt(), 0xff513b47.toInt(), 0xff344a50.toInt()),
     val lyricColor: Int = 0xffffffff.toInt(),
+    val lyricGlowColor: Int = lyricColor,
     val loading: Boolean = false,
     val poem: Poem? = null,
     val footer: List<FooterContribution> = emptyList(),

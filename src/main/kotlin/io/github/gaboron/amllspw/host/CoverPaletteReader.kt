@@ -12,7 +12,7 @@ import javax.imageio.ImageIO
 internal class CoverPaletteReader(
     private val cover: (String) -> CompletionStage<ByteArray?> = { WorkshopApi.library.getCoverById(it) },
 ) : AutoCloseable {
-    data class Colors(val palette: List<Int>, val lyric: Int)
+    data class Colors(val palette: List<Int>, val lyric: Int, val glow: Int = lyric)
 
     private val decoder = Executors.newSingleThreadExecutor { r -> Thread(r, "amll-cover-colors").apply { isDaemon = true } }
     private val cache = object : LinkedHashMap<String, Colors?>(32, .75f, true) {
@@ -55,7 +55,8 @@ internal class CoverPaletteReader(
             fun component(shift: Int) = (((pixel ushr shift) and 255) * .5f + 12).toInt().coerceIn(0, 255)
             (255 shl 24) or (component(16) shl 16) or (component(8) shl 8) or component(0)
         }
-        return Colors(palette, CoverLyricColor.foreground(CoverLyricColor.dominant(image)))
+        val accent = CoverLyricColor.accent(CoverLyricColor.dominant(image))
+        return Colors(palette, accent.foreground, accent.glow)
     }
 
     override fun close() {

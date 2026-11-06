@@ -26,12 +26,16 @@ internal class WordHighlightPainter : AutoCloseable {
     private val glowMaskPaint = Paint()
     private val atlas = GlyphAtlas()
     private val imagePaint = Paint()
+    private val glowImagePaint = Paint()
     private var tint = Color.White.toArgb()
     private var tintFilter: org.jetbrains.skia.ColorFilter? = null
+    private var glowTint = Color.White.toArgb()
+    private var glowTintFilter: org.jetbrains.skia.ColorFilter? = null
 
     fun DrawScope.paint(layout: LineLayout, region: WordRegion, timeMs: Long, highlight: Float, options: RenderOptions,
-        color: Color = Color.White, opacity: Float = 1f) {
+        color: Color = Color.White, opacity: Float = 1f, glowColor: Color = color) {
         updateTint(color.toArgb())
+        updateGlowTint(glowColor.toArgb())
         val word = region.word
         val progress = WordAnimation.progress(word, timeMs)
         val texture = atlas.get(layout, this)
@@ -78,7 +82,7 @@ internal class WordHighlightPainter : AutoCloseable {
                         val emphasis = if (bloom > 0f) (animation.glow / bloom).coerceIn(0f, 1f) else 1f
                         val radiusEm = BLOOM_RADIUS_EM + (animation.blurEm - BLOOM_RADIUS_EM) * emphasis
                         val radius = (radiusEm * layout.emPx).roundToInt().coerceIn(1, 24)
-                        paintGlow(texture, source, target, strength * highlight * opacity, radius)
+                        paintGlowLayers(texture, source, target, strength * highlight * opacity, radius, options.coloredLyrics)
                     }
                 }
                 imagePaint.alpha = ((.2f + .2f * highlight) * opacity * 255).roundToInt()
@@ -108,14 +112,26 @@ internal class WordHighlightPainter : AutoCloseable {
 
     fun DrawScope.paintBloom(layout: LineLayout, highlight: Float, options: RenderOptions, color: Color) {
         if (!options.coloredLyrics || !options.glow || options.reducedMotion || highlight <= .001f) return
-        updateTint(color.toArgb())
+        updateGlowTint(color.toArgb())
         val texture = atlas.get(layout, this)
         val padding = texture.padding
         val source = SkiaRect.makeWH(texture.image.width.toFloat(), texture.image.height.toFloat())
         val target = SkiaRect.makeLTRB(-padding, -padding,
             layout.main.size.width + padding, layout.main.size.height + padding)
         val radius = (BLOOM_RADIUS_EM * layout.emPx).roundToInt().coerceIn(1, 24)
-        paintGlow(texture, source, target, BLOOM_OPACITY * highlight, radius)
+        paintGlowLayers(texture, source, target, BLOOM_OPACITY * highlight, radius, colored = true)
+    }
+
+    private fun DrawScope.paintGlowLayers(texture: GlyphAtlas.Entry, source: SkiaRect, target: SkiaRect,
+        opacity: Float, radius: Int, colored: Boolean) {
+        if (!colored) {
+            paintGlow(texture, source, target, opacity, radius)
+            return
+        }
+        // A broad colored halo carries the artwork hue; the tighter halo adds brightness
+        // around the ink. Both reuse white cached masks and are tinted only at draw time.
+        paintGlow(texture, source, target, opacity * .65f, (radius * 1.4f).roundToInt().coerceIn(1, 32))
+        paintGlow(texture, source, target, opacity * .8f, (radius * .65f).roundToInt().coerceAtLeast(1))
     }
 
     private fun DrawScope.paintGlow(texture: GlyphAtlas.Entry, source: SkiaRect, target: SkiaRect, opacity: Float, radius: Int) {
@@ -131,10 +147,10 @@ internal class WordHighlightPainter : AutoCloseable {
                 old.image.close()
             }
         }
-        imagePaint.alpha = (opacity * 255).roundToInt().coerceIn(0, 255)
+        glowImagePaint.alpha = (opacity * 255).roundToInt().coerceIn(0, 255)
         drawContext.canvas.skiaCanvas.drawImageRect(glow.image,
             SkiaRect.makeWH(glow.image.width.toFloat(), glow.image.height.toFloat()), glow.bounds,
-            SamplingMode.LINEAR, imagePaint, true)
+            SamplingMode.LINEAR, glowImagePaint, true)
     }
 
     private fun createGlow(texture: GlyphAtlas.Entry, source: SkiaRect, target: SkiaRect, radius: Int): GlowTexture {
@@ -174,20 +190,32 @@ internal class WordHighlightPainter : AutoCloseable {
             org.jetbrains.skia.ColorFilter.makeBlend(argb, org.jetbrains.skia.BlendMode.SRC_IN)
         imagePaint.colorFilter = tintFilter
     }
+    private fun updateGlowTint(argb: Int) {
+        if (glowTint == argb) return
+        glowTint = argb
+        glowImagePaint.colorFilter = null
+        glowTintFilter?.close()
+        glowTintFilter = if (argb == Color.White.toArgb()) null else
+            org.jetbrains.skia.ColorFilter.makeBlend(argb, org.jetbrains.skia.BlendMode.SRC_IN)
+        glowImagePaint.colorFilter = glowTintFilter
+    }
     override fun close() {
         if (closed) return
         closed = true
         clearTextCache()
         glowMaskPaint.close()
         imagePaint.close()
+        glowImagePaint.close()
         tintFilter?.close()
         tintFilter = null
+        glowTintFilter?.close()
+        glowTintFilter = null
         glowPaints.values.forEach { it.close() }
         glowPaints.clear()
     }
 
     private companion object {
-        const val BLOOM_OPACITY = .05f
-        const val BLOOM_RADIUS_EM = .04f
+        const val BLOOM_OPACITY = .1f
+        const val BLOOM_RADIUS_EM = .07f
     }
 }

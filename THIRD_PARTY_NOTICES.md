@@ -15,6 +15,12 @@
 | 底栏布局与交互 | [BottomLine](https://github.com/amll-dev/applemusic-like-lyrics/blob/ca0f41d67882d936c0365ffd99c16841ea2fa39d/packages/core/src/lyric-player/dom/bottom-line.ts)、[Focus](https://github.com/amll-dev/applemusic-like-lyrics/blob/ca0f41d67882d936c0365ffd99c16841ea2fa39d/packages/core/src/lyric-player/base/focus.ts) |
 | Ruby 注音布局与动画 | [LyricLine](https://github.com/amll-dev/applemusic-like-lyrics/blob/5fee356362353dbb24ce9bea3a62536478040de7/packages/core/src/lyric-player/dom/lyric-line.ts)、[MaskAnimator](https://github.com/amll-dev/applemusic-like-lyrics/blob/5fee356362353dbb24ce9bea3a62536478040de7/packages/core/src/lyric-player/dom/animation/mask/animator-web.ts) |
 
+## 色彩与发光
+
+[Oklab](https://bottosson.github.io/posts/oklab/) 的 sRGB 转换矩阵移植自 Björn Ottosson 发布的 2021-01-25 版本，用于封面取色与歌词、光晕配色，采用 MIT 许可证，Copyright (c) 2020 Björn Ottosson。许可证见 `licenses/Oklab-MIT.txt`。
+
+双层光晕的视觉组合参考 solstice23 的 [Refined Now Playing](https://github.com/solstice23/refined-now-playing-netease/blob/f3b3e2b38809e711d5c60cb2b7f8ce1eda318bda/src/lyrics.js#L951-L985)，上游采用 MIT 许可证，Copyright (c) 2022 solstice23。许可证见 `licenses/Refined-Now-Playing-MIT.txt`。
+
 ## 第三方依赖
 
 | 组件 | 许可证 | 用途 |

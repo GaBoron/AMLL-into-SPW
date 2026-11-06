@@ -13,30 +13,34 @@ internal class LyricLinePainter(private val measurer: TextMeasurer) : AutoClosea
     private val ruby = LyricRubyPainter()
 
     fun DrawScope.paintLine(layout: LineLayout, positionMs: Long, options: RenderOptions,
-        highlight: Float, color: Color, blurRadius: Float, viewport: SkiaRect? = null, opacity: Float = 1f) {
+        highlight: Float, color: Color, blurRadius: Float, viewport: SkiaRect? = null, opacity: Float = 1f,
+        glowColor: Color = color) {
         if (opacity <= 0f) return
         with(textBlur) {
             val contrast = if (options.coloredLyrics) layout.emPx else 0f
             if (highlight > 0f) {
                 // Moving words use one native effect layer; their changing shapes
                 // never trigger a CPU mask capture or convolution on the UI thread.
-                paintLive(layout.layerBounds, blurRadius, color, contrast, opacity) {
-                    paintContent(layout, positionMs, options, highlight, Color.White)
+                // Preserve the ink/glow colors drawn below; a final SRC_IN tint would
+                // erase their chroma difference. White leaves this layer untinted.
+                paintLive(layout.layerBounds, blurRadius, Color.White, contrast, opacity) {
+                    paintContent(layout, positionMs, options, highlight, color, glowColor)
                 }
                 return
             }
             paint(layout, layout.layerBounds, blurRadius, color,
                 contrast, opacity = opacity, viewport = viewport) {
-                paintContent(layout, positionMs, options, highlight, Color.White)
+                paintContent(layout, positionMs, options, highlight, Color.White, Color.White)
             }
         }
     }
 
-    private fun DrawScope.paintContent(layout: LineLayout, positionMs: Long, options: RenderOptions, highlight: Float, color: Color) {
+    private fun DrawScope.paintContent(layout: LineLayout, positionMs: Long, options: RenderOptions, highlight: Float,
+        color: Color, glowColor: Color) {
         layout.upperRomanization?.let { with(ruby) { paintUpper(it, layout.emPx, highlight, color) } }
         translate(top = layout.rubyHeight) {
             if (!layout.line.hasWordTiming || highlight <= .001f) {
-                with(words) { paintBloom(layout, highlight, options, color) }
+                with(words) { paintBloom(layout, highlight, options, glowColor) }
                 drawText(layout.main, color = color, alpha = .2f + .8f * highlight)
             } else {
                 // Atlas sampling and direct text have slightly different antialiasing.
@@ -45,7 +49,7 @@ internal class LyricLinePainter(private val measurer: TextMeasurer) : AutoClosea
                 if (wordOpacity < 1f)
                     drawText(layout.main, color = color, alpha = (.2f + .8f * highlight) * (1f - wordOpacity))
                 for (region in layout.words) {
-                    with(words) { paint(layout, region, positionMs, highlight, options, color, wordOpacity) }
+                    with(words) { paint(layout, region, positionMs, highlight, options, color, wordOpacity, glowColor) }
                 }
             }
             if (options.romanization) with(ruby) { paintRuby(layout, positionMs, highlight, options, color) }

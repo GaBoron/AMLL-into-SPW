@@ -60,6 +60,7 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
     val cache = remember(presentation.document, density, showSecondary, options.typography, options.translationLanguage) { LayoutCache() }
     val contentTransition = remember(presentation.trackKey) { LyricContentTransition(options) }
     val lyricColor = if (options.coloredLyrics) Color(presentation.lyricColor) else Color.White
+    val glowColor = if (options.coloredLyrics) Color(presentation.lyricGlowColor) else Color.White
     val scroll = rememberScrollableState { delta -> viewport.scroll(delta); delta }
     val hovering = pointer.position?.let { point -> viewport.hits.any { it.bounds.contains(point) } } == true
     Canvas(modifier.fillMaxSize().clipToBounds().lyricHover(pointer)
@@ -195,7 +196,7 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
                                     translate(top = top) {
                                         paintLine(layout, position, layerOptions[layerIndex],
                                             voice.highlight.value, lyricColor, voice.blur.radius, viewport,
-                                            rowOpacity * layer.opacity)
+                                            rowOpacity * layer.opacity, glowColor = glowColor)
                                     }
                                 }
                                 for (auxiliary in content.auxiliary) {

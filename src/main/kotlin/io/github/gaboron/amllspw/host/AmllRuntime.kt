@@ -169,6 +169,7 @@ internal class AmllRuntime : AutoCloseable {
         val previous = mutablePresentation.value
         mutablePresentation.value = LyricsPresentation(trackKey = next, palette = colors?.palette ?: previous.palette,
             lyricColor = colors?.lyric ?: if (ready) 0xffffffff.toInt() else previous.lyricColor, loading = true,
+            lyricGlowColor = colors?.glow ?: if (ready) 0xffffffff.toInt() else previous.lyricGlowColor,
             footer = footerInbox.current(TrackIdentity(media.id, media.path)))
         artwork.thenAccept { loaded -> enqueue { applyCover(media, loaded) } }
         localDocument = runCatching { local.readTtml(Path.of(media.path)) }.getOrNull()
@@ -184,7 +185,8 @@ internal class AmllRuntime : AutoCloseable {
         if (!closed && current.trackKey == trackKey && key == trackKey &&
             currentIdentity()?.matches(TrackIdentity(media.id, media.path)) == true)
             mutablePresentation.value = current.copy(palette = colors?.palette ?: current.palette,
-                lyricColor = colors?.lyric ?: 0xffffffff.toInt())
+                lyricColor = colors?.lyric ?: 0xffffffff.toInt(),
+                lyricGlowColor = colors?.glow ?: 0xffffffff.toInt())
     }
 
     private fun refreshDocument(media: PlaybackExtensionPoint.MediaItem, hostUpdated: Boolean = false) {
