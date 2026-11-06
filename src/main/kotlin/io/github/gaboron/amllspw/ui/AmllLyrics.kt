@@ -109,11 +109,11 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
             painter.clearTextCache()
         }
         val weights = contentTransition.update(options, dt)
-        val layers = weights.map { (key, opacity, layoutWeight) ->
+        val layers = weights.map { (key, opacity, layoutWeight, contentWeight) ->
             LyricLayoutLayer(key, opacity, cache.variants.getOrPut(key) {
                 layoutLyrics(presentation.document, measurer, width, fontSize, showSecondary,
                     romanization = key.romanization, translation = key.translation, typography = options.typography)
-            }, layoutWeight = layoutWeight)
+            }, layoutWeight = layoutWeight, contentWeight = contentWeight)
         }
         cache.groups = blendLyricLayouts(layers)
         // Outgoing measurements are needed only while their ink and reserved space are fading.

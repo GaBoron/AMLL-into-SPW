@@ -78,10 +78,14 @@ internal fun InstrumentalPoetrySurface(poem: Poem, options: RenderOptions, lyric
                         BalancedPoetryText(current.text, style = TextStyle(color = color.copy(alpha = .78f), fontFamily = readingFamily,
                             fontSize = readingSize.sp, lineHeight = (readingSize * 1.85f).sp,
                             letterSpacing = .6.sp, textAlign = TextAlign.Center))
-                        Spacer(Modifier.height(24.dp))
-                        BasicText(current.collection, style = options.typography.textStyle(11f).copy(
-                            color = color.copy(alpha = .38f), textAlign = TextAlign.Center))
-                        InstrumentalFooter(footerSections, options, color, lyricFooterFontSize(headingSize))
+                        InstrumentalFooter(footerSections, options, color, lyricFooterFontSize(headingSize),
+                            compressionSpace = 24.dp, leadingContent = {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Spacer(Modifier.height(24.dp))
+                                    BasicText(current.collection, style = options.typography.textStyle(11f).copy(
+                                        color = color.copy(alpha = .38f), textAlign = TextAlign.Center))
+                                }
+                            })
                     }
                 }
             }
@@ -144,8 +148,9 @@ private fun InstrumentalHeading(options: RenderOptions, color: Color, titleSize:
 
 @Composable
 private fun InstrumentalFooter(sections: List<LyricFooterSection>, options: RenderOptions, color: Color,
-    footerSize: Float, leadingGap: Boolean = true) {
-    LyricContentVisibility(!options.hideFooter && sections.isNotEmpty(), options) {
+    footerSize: Float, leadingGap: Boolean = true, compressionSpace: Dp = 0.dp,
+    leadingContent: @Composable () -> Unit = {}) {
+    LyricContentVisibility(!options.hideFooter && sections.isNotEmpty(), options, compressionSpace, leadingContent) {
         Column {
             InstrumentalFooterSections(sections, options, color, footerSize, leadingGap)
         }

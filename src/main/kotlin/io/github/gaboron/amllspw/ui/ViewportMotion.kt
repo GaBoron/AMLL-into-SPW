@@ -58,11 +58,13 @@ internal class ViewportMotion {
         lastNow = now
         seekFollow.update(timeMs, now)
         val manual = isManual(now)
+        // Signed footer travel remains part of the framing until its compression has recovered.
+        val footerPresent = footerHeight != 0f
         if (groups.isEmpty()) {
             interludeY = null
             val offset = if (manual) manualOffset.coerceIn(-height * .3f, maxOf(0f, footerHeight - height * .38f)) else 0f
             currentOffset = offset
-            footer.update(height * .52f - offset, footerHeight > 0, true, 0f, height, dt, immediate, 170f, 28f)
+            footer.update(height * .52f - offset, footerPresent, true, 0f, height, dt, immediate, 170f, 28f)
             return emptyList()
         }
         val first = rows.size != groups.size
@@ -89,7 +91,7 @@ internal class ViewportMotion {
             else timelineFocus).coerceIn(groups.indices)
         // Like upstream, manual browsing freezes the previous footer focus. The bottom is a
         // separate target, never a synthetic timed lyric or a focus inferred from the last row.
-        val footerFocused = footerHeight > 0 && (if (manual) footer.focused else endOfLyrics)
+        val footerFocused = footerPresent && (if (manual) footer.focused else endOfLyrics)
         val motionFocus = if (footerFocused) groups.size else focusIndex
         if (seek) seekUntil = now + 650_000_000
         if (motionFocus != focus) {
@@ -103,7 +105,7 @@ internal class ViewportMotion {
         val focal = if (footerFocused) geometry.footerTop + footerHeight * .5f else
             geometry.interludeTop?.let { it + slotHeight / 2 } ?: (geometry.tops[focusIndex] + geometry.mainHeights[focusIndex] * .35f)
         val aligned = focal - height * .35f
-        val maxOffset = if (footerHeight > 0) maxOf(0f, geometry.totalHeight - height * .35f) else maxOf(0f, geometry.tops.last())
+        val maxOffset = if (footerPresent) maxOf(0f, geometry.totalHeight - height * .35f) else maxOf(0f, geometry.tops.last())
         val followOffset = if (overflow.latestOnly) aligned else lyricScrollAnchor(groups, geometry, timeMs, height, aligned,
             focus = focusIndex.takeIf { !footerFocused && interludeBefore == null })
         val offset = if (manual) manualOffset.coerceIn(-height * .65f, maxOffset) else followOffset
@@ -190,7 +192,7 @@ internal class ViewportMotion {
         }
         val footerStagger = (abs(groups.size - motionFocus) * 45L).coerceAtMost(270) * 1_000_000
         // Seeks retarget the current footer animation; only disabling motion skips transitions.
-        footer.update(geometry.footerTop - offset, footerHeight > 0, footerFocused,
+        footer.update(geometry.footerTop - offset, footerPresent, footerFocused,
             if (!footerBlurEnabled || footerFocused || manual) 0f else (1 + groups.size - focusIndex).coerceAtMost(5).toFloat(),
             height, dt, immediate, motionStiffness, motionDamping,
             first || seeking || manual || now - focusStamp >= footerStagger)
