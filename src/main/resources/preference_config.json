@@ -88,7 +88,7 @@
         },
         {
           "type": "switch", "key": "spring", "title": "弹簧滚动与错落动画", "default_value": true,
-          "summary": "以弹簧动画滚动歌词，并错落移动歌词行。"
+          "summary": "控制歌词滚动、错落移动，以及翻译、音译和底栏展开／收起的弹簧效果。"
         }
       ]
     }

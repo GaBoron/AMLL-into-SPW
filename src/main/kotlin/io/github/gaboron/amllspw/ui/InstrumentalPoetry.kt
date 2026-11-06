@@ -7,6 +7,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -32,6 +35,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.gaboron.amllspw.poetry.Poem
@@ -151,9 +155,15 @@ private fun InstrumentalHeading(options: RenderOptions, color: Color, titleSize:
 private fun InstrumentalFooter(sections: List<LyricFooterSection>, options: RenderOptions, color: Color,
     footerSize: Float, leadingGap: Boolean = true) {
     val duration = if (options.reducedMotion) 0 else 280
+    val sizeMotion: FiniteAnimationSpec<IntSize> = when {
+        options.reducedMotion -> snap()
+        options.spring -> spring(dampingRatio = LYRIC_CONTENT_SPRING_DAMPING_RATIO,
+            stiffness = LYRIC_CONTENT_SPRING_STIFFNESS, visibilityThreshold = IntSize(1, 1))
+        else -> tween(duration)
+    }
     AnimatedVisibility(!options.hideFooter && sections.isNotEmpty(),
-        enter = fadeIn(tween(duration)) + expandVertically(tween(duration)),
-        exit = fadeOut(tween(duration)) + shrinkVertically(tween(duration))) {
+        enter = fadeIn(tween(duration)) + expandVertically(sizeMotion),
+        exit = fadeOut(tween(duration)) + shrinkVertically(sizeMotion)) {
         Column {
             InstrumentalFooterSections(sections, options, color, footerSize, leadingGap)
         }

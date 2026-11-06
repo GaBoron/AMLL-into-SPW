@@ -109,11 +109,11 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
             painter.clearTextCache()
         }
         val weights = contentTransition.update(options, dt)
-        val layers = weights.map { (key, opacity) ->
+        val layers = weights.map { (key, opacity, layoutWeight) ->
             LyricLayoutLayer(key, opacity, cache.variants.getOrPut(key) {
                 layoutLyrics(presentation.document, measurer, width, fontSize, showSecondary,
                     romanization = key.romanization, translation = key.translation, typography = options.typography)
-            })
+            }, layoutWeight = layoutWeight)
         }
         cache.groups = blendLyricLayouts(layers)
         // Outgoing measurements are needed only while their ink and reserved space are fading.
@@ -133,7 +133,7 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
             interval?.beforeGroup, interludeSlotHeight(fontSize * density.density, size.height), playing,
             options.hidePassed && playing != false && !viewport.isManual(nanos) && !scroll.isScrollInProgress, !options.spring || options.reducedMotion,
             clock.playbackRate,
-            footerHeight = (cache.footer?.height ?: 0f) * contentTransition.footerVisibility,
+            footerHeight = (cache.footer?.height ?: 0f) * contentTransition.footerExpansion,
             endOfLyrics = presentation.document.lines.isNotEmpty() && position >= presentation.document.durationMs,
             footerBlurEnabled = options.blur && !options.reducedMotion && pointer.position == null)
         val manual = viewport.isManual(nanos) || scroll.isScrollInProgress
