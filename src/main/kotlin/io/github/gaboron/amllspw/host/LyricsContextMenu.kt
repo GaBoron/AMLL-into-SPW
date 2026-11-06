@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
@@ -19,7 +18,6 @@ import io.github.gaboron.amllspw.ui.RenderOptions
 import io.github.gaboron.amllspw.ui.lyricContextMenuGesture
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import java.awt.datatransfer.StringSelection
 import kotlin.math.roundToInt
 
 /** Owns the menu outside the scene crossfade so a departing track cannot retain an active menu. */
@@ -47,7 +45,7 @@ internal fun LyricsContextMenu(runtime: AmllRuntime, menu: NativeLyricsMenu?, pr
             fun copyLyrics(translation: Boolean) {
                 jobs.launch {
                     try {
-                        clipboard.setClipEntry(ClipEntry(StringSelection(presentation.document.plainText(translation))))
+                        LyricClipboard.copy(presentation.document.plainText(translation), clipboard)
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (failure: Exception) {
