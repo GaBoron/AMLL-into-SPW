@@ -20,6 +20,19 @@ import kotlin.math.sqrt
 internal const val LYRIC_CONTENT_SPRING_STIFFNESS = 180f
 internal const val LYRIC_CONTENT_SPRING_DAMPING_RATIO = .42f
 
+/** Round both rest positions with a C2 connector, keeping reflected closing velocity continuous. */
+private fun softenContentEndpoint(value: Float): Float {
+    val endpoint = if (value < .5f) 0f else 1f
+    val distance = value - endpoint
+    val radius = .3f
+    val magnitude = abs(distance)
+    if (magnitude >= radius) return value
+    val t = magnitude / radius
+    // Matches value, slope and curvature at the linear boundary; slope and curvature are zero at rest.
+    val rounded = radius * t * t * t * (6f + t * (-8f + 3f * t))
+    return endpoint + if (distance < 0f) -rounded else rounded
+}
+
 internal data class LyricContentKey(val translation: Boolean, val romanization: Boolean)
 /** Layout weights extrapolate during overshoot; opacity weights remain a bounded crossfade. */
 internal data class LyricContentWeight(val key: LyricContentKey, val opacity: Float, val layoutWeight: Float = opacity)
@@ -89,14 +102,16 @@ internal class LyricContentTransition(initial: RenderOptions) {
 private class ContentVisibility(visible: Boolean) {
     private var wasVisible = visible
     private var returning = false
+    private var springEnabled = true
     private val criticalDamping = 2f * sqrt(LYRIC_CONTENT_SPRING_STIFFNESS)
     private val fade = ActivationEnvelope(if (visible) 1f else 0f,
         .28f, .28f, CubicBezier(.25f, .1f, .25f, 1f))
     private val spring = SpringMotion(if (visible) 1f else 0f, LYRIC_CONTENT_SPRING_STIFFNESS,
         criticalDamping * LYRIC_CONTENT_SPRING_DAMPING_RATIO)
     val opacity: Float get() = fade.value
-    // Fold the single closing rebound into positive height; opacity stays independent.
-    val expansion: Float get() = abs(spring.value).coerceAtMost(1.32f)
+    // The rounded zero crossing removes the impact from folding the closing rebound into positive height.
+    val expansion: Float get() = if (springEnabled) abs(softenContentEndpoint(spring.value)).coerceAtMost(1.32f)
+        else fade.value
 
     fun settled(visible: Boolean): Boolean {
         val target = if (visible) 1f else 0f
@@ -111,7 +126,8 @@ private class ContentVisibility(visible: Boolean) {
             spring.configure(LYRIC_CONTENT_SPRING_STIFFNESS, criticalDamping * LYRIC_CONTENT_SPRING_DAMPING_RATIO)
         }
         fade.update(visible, dt, options.reducedMotion)
-        if (options.reducedMotion || !options.spring) {
+        springEnabled = options.spring && !options.reducedMotion
+        if (!springEnabled) {
             returning = false
             spring.configure(LYRIC_CONTENT_SPRING_STIFFNESS, criticalDamping * LYRIC_CONTENT_SPRING_DAMPING_RATIO)
             spring.snap(fade.value)
