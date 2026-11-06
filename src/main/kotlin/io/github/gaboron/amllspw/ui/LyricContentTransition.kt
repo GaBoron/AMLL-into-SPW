@@ -8,8 +8,8 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import kotlin.math.abs
 import kotlin.math.sqrt
 
-internal const val LYRIC_CONTENT_SPRING_STIFFNESS = 160f
-internal const val LYRIC_CONTENT_SPRING_DAMPING_RATIO = .72f
+internal const val LYRIC_CONTENT_SPRING_STIFFNESS = 180f
+internal const val LYRIC_CONTENT_SPRING_DAMPING_RATIO = .42f
 
 internal data class LyricContentKey(val translation: Boolean, val romanization: Boolean)
 /** Layout weights extrapolate during overshoot; opacity weights remain a bounded crossfade. */
@@ -78,20 +78,25 @@ internal class LyricContentTransition(initial: RenderOptions) {
 }
 
 private class ContentVisibility(visible: Boolean) {
+    private var wasVisible = visible
     private val fade = ActivationEnvelope(if (visible) 1f else 0f,
         .28f, .28f, CubicBezier(.25f, .1f, .25f, 1f))
     private val spring = SpringMotion(if (visible) 1f else 0f, LYRIC_CONTENT_SPRING_STIFFNESS,
         2f * sqrt(LYRIC_CONTENT_SPRING_STIFFNESS) * LYRIC_CONTENT_SPRING_DAMPING_RATIO)
     val opacity: Float get() = fade.value
-    val expansion: Float get() = spring.value.coerceIn(0f, 1.08f)
+    val expansion: Float get() = spring.value.coerceIn(0f, 1.32f)
 
     fun update(visible: Boolean, dt: Float, options: RenderOptions) {
         val target = if (visible) 1f else 0f
+        val startingHide = wasVisible && !visible
+        wasVisible = visible
         fade.update(visible, dt, options.reducedMotion)
         if (options.reducedMotion || !options.spring) {
             spring.snap(fade.value)
             return
         }
+        // A settled open slot stretches briefly before closing. Reversals in flight keep their momentum.
+        if (startingHide && spring.value == 1f && spring.velocity == 0f) spring.transfer(1f, 8f)
         spring.update(target, dt)
         // Collapsed slots cannot have negative height or rebound into an empty gap.
         if ((!visible && spring.value <= 0f) ||
