@@ -3,9 +3,11 @@ package io.github.gaboron.amllspw.interop
 import java.nio.file.Path
 import java.util.Locale
 
-/** Both identifiers must agree when IDs are available; the path is always required. */
+/** Local tracks require matching paths; external identities carry their playback session in the ID. */
 data class TrackIdentity(val id: String, val path: String) {
     fun matches(other: TrackIdentity): Boolean {
+        if (id.startsWith("external:") || other.id.startsWith("external:")) return id == other.id &&
+            path.isEmpty() && other.path.isEmpty()
         if (id.isNotBlank() && other.id.isNotBlank() && id != other.id) return false
         if (path.isBlank() || other.path.isBlank()) return false
         return normalized(path) == normalized(other.path)

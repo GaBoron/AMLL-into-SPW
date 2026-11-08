@@ -67,7 +67,7 @@ internal class PlaybackClock(private val nanoTime: () -> Long = System::nanoTime
     private var pendingSeek: Seek? = null
     @Volatile var seekGeneration = 0L; private set
 
-    @Synchronized fun sync(track: String, ms: Long, seek: Boolean = false) {
+    @Synchronized fun sync(track: String, ms: Long, seek: Boolean = false, knownRate: Double? = null) {
         select(track)
         val now = nanoTime()
         val raw = ms.coerceAtLeast(0)
@@ -103,6 +103,7 @@ internal class PlaybackClock(private val nanoTime: () -> Long = System::nanoTime
         if (!sampled || discontinuity || (playStateKnown && !playing)) speed.reset(raw, now)
         else if (speed.observe(raw, now) && !playStateKnown) { playing = true; playStateKnown = true }
         position = raw; stamp = now; sampled = true
+        knownRate?.let(speed::useRate)
         if (request?.confirmed == true) request.confirm(raw, now)
         if (discontinuity) seekGeneration++
     }

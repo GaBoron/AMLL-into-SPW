@@ -5,6 +5,9 @@ import kotlin.math.abs
 /** Estimate media speed from progressing host samples, independently of display phase error. */
 internal class PlaybackRateEstimator {
     var rate = 1.0; private set
+    fun useRate(value: Double) {
+        if (value.isFinite() && value in .1..8.0) { rate = value; candidate = null }
+    }
     private var position = 0L
     private var stamp = -1L
     private var candidate: Double? = null

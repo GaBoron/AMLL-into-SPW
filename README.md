@@ -51,6 +51,8 @@
 
 ## 🔌 与其他插件互通
 
+支持外部播放来源的 Spotify 插件启用后，歌词会跟随本机 Spotify 播放设备，点击歌词可跳转 Spotify 进度。在线匹配、手动选择和歌词延迟由支持该接口的 SPW Lyrics 提供；切换回本地播放后继续使用原有歌词来源。
+
 - **[原始 TTML 接口](docs/TTML互通.md)**：已与 [SPW Lyrics](https://github.com/GaBoron/SPW-Lyrics) 互通，可接收完整歌词及声部、翻译、注音等信息；其他歌词插件也能接入。
 - **[底部信息栏接口](docs/底部信息栏接口.md)**：其他插件可提供歌曲匹配、作者等 key/value 信息，无需提交 TTML。
 
