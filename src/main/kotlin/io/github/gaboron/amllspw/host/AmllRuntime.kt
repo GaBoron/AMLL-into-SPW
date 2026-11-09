@@ -6,6 +6,7 @@ import com.xuncorp.spw.workshop.api.PluginPermission
 import io.github.gaboron.amllspw.lyrics.*
 import io.github.gaboron.amllspw.timeline.PlaybackClock
 import io.github.gaboron.amllspw.interop.TrackIdentity
+import io.github.gaboron.amllspw.interop.localMediaPath
 import io.github.gaboron.amllspw.interop.TtmlInbox
 import io.github.gaboron.amllspw.interop.FooterInbox
 import io.github.gaboron.amllspw.ui.LyricsPresentation
@@ -18,7 +19,6 @@ import io.github.gaboron.amllspw.romanization.CantoneseReadings
 import io.github.gaboron.amllspw.romanization.KoreanAnnotations
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.nio.file.Path
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -35,9 +35,9 @@ internal class AmllRuntime : AutoCloseable {
     private val local = LocalLyricsReader()
     private val externalArtwork = ExternalArtworkLoader()
     private val covers = CoverPaletteReader { id ->
-        val track = externalTrack?.takeIf { it.uri == id }
-        if (track == null) WorkshopApi.library.getCoverById(id)
-        else externalArtwork.load(track.identity, track.coverUrl)
+        val track = externalTrack?.takeIf { it.artworkKey == id }
+        if (track != null) externalArtwork.load(track.artworkKey, track.coverUrl)
+        else WorkshopApi.library.getCoverById(id)
     }
     private val readings = JapaneseReadings()
     private val cantoneseReadings = CantoneseReadings()
@@ -72,7 +72,10 @@ internal class AmllRuntime : AutoCloseable {
                 val media = currentMediaItem()
                 if (media == null) clear() else {
                     val changed = next?.identity != previous?.identity
-                    select(media, reload = changed)
+                    val metadataChanged = next != null && previous != null &&
+                        (next.title != previous.title || next.artist != previous.artist || next.album != previous.album ||
+                            next.durationMs != previous.durationMs || next.coverUrl != previous.coverUrl)
+                    select(media, reload = changed || metadataChanged)
                     if (next != null) {
                         val trackKey = mediaKey(media)
                         clock.sync(trackKey, next.currentPosition(), knownRate = next.playbackSpeed)
@@ -120,7 +123,7 @@ internal class AmllRuntime : AutoCloseable {
         try {
             val track = externalTrack
             if (track == null) WorkshopApi.playback.seekTo(target)
-            else check(external.seek(track, target)) { "Spotify 跳转未被接受，请确认播放设备与当前歌曲。" }
+            else check(external.seek(track, target)) { "外部音源未接受跳转，请确认当前歌曲与跳转支持。" }
         } catch (error: Throwable) {
             clock.cancelExpectedSeek(trackKey, target)
             throw error
@@ -180,8 +183,8 @@ internal class AmllRuntime : AutoCloseable {
     private fun select(media: PlaybackExtensionPoint.MediaItem, reload: Boolean = false) {
         val next = mediaKey(media)
         val options = preferences.options.value
-        val languages = if (externalTrack == null && options.automaticCantoneseRuby)
-            languageReader.read(Path.of(media.path)) else emptyList()
+        val audio = if (externalTrack == null) localMediaPath(media.path) else null
+        val languages = if (options.automaticCantoneseRuby) audio?.let(languageReader::read).orEmpty() else emptyList()
         if (initialized && next == key && !reload) {
             if (languages != audioLanguages) {
                 audioLanguages = languages
@@ -192,7 +195,8 @@ internal class AmllRuntime : AutoCloseable {
         audioLanguages = languages
         initialized = true
         key = next
-        val artwork = covers.load(media.id)
+        val artworkKey = externalTrack?.artworkKey ?: media.id
+        val artwork = covers.load(artworkKey)
         val ready = artwork.isDone
         val colors = if (ready) artwork.getNow(null) else null
         val previous = mutablePresentation.value
@@ -200,18 +204,19 @@ internal class AmllRuntime : AutoCloseable {
             lyricColor = colors?.lyric ?: if (ready) 0xffffffff.toInt() else previous.lyricColor, loading = true,
             lyricGlowColor = colors?.glow ?: if (ready) 0xffffffff.toInt() else previous.lyricGlowColor,
             footer = footerInbox.current(identityFor(media)))
-        artwork.thenAccept { loaded -> enqueue { applyCover(media, loaded) } }
-        localDocument = if (externalTrack != null) null else runCatching { local.readTtml(Path.of(media.path)) }.getOrNull()
+        artwork.thenAccept { loaded -> enqueue { applyCover(media, next, artworkKey, loaded) } }
+        localDocument = audio?.let { runCatching { local.readTtml(it) }.getOrNull() }
         if (closed) return
         // A fast cover decode can finish while local lyrics are read; publish both together.
-        if (artwork.isDone) applyCover(media, artwork.getNow(null))
+        if (artwork.isDone) applyCover(media, next, artworkKey, artwork.getNow(null))
         refreshDocument(media)
     }
 
-    private fun applyCover(media: PlaybackExtensionPoint.MediaItem, colors: CoverPaletteReader.Colors?) {
-        val trackKey = mediaKey(media)
+    private fun applyCover(media: PlaybackExtensionPoint.MediaItem, trackKey: String, artworkKey: String,
+        colors: CoverPaletteReader.Colors?) {
         val current = mutablePresentation.value
-        if (!closed && current.trackKey == trackKey && key == trackKey &&
+        if (!closed && current.trackKey == trackKey && key == trackKey && mediaKey(media) == trackKey &&
+            (externalTrack?.artworkKey ?: media.id) == artworkKey &&
             currentIdentity()?.matches(identityFor(media)) == true)
             mutablePresentation.value = current.copy(palette = colors?.palette ?: current.palette,
                 lyricColor = colors?.lyric ?: 0xffffffff.toInt(),
@@ -245,11 +250,17 @@ internal class AmllRuntime : AutoCloseable {
     }
     private fun currentMediaItem(): PlaybackExtensionPoint.MediaItem? = externalTrack?.let {
         PlaybackExtensionPoint.MediaItem(it.title, it.artist, it.album, "", "", id = it.uri, duration = it.durationMs)
-    } ?: WorkshopApi.playback.getCurrentMediaItem()
+    } ?: WorkshopApi.playback.getCurrentMediaItem()?.takeIf {
+        it.id.isNotBlank() || it.path.isNotBlank() || it.title.isNotBlank() || it.artist.isNotBlank() || it.album.isNotBlank()
+    }
 
     private fun identityFor(media: PlaybackExtensionPoint.MediaItem): TrackIdentity = externalTrack
         ?.takeIf { it.uri == media.id }?.let { TrackIdentity("external:${it.identity}", "") }
-        ?: TrackIdentity(media.id, media.path)
+        ?: TrackIdentity(media.id.ifBlank {
+            if (media.path.isNotBlank()) "" else "host:" +
+                listOf(media.title, media.artist, media.album, media.duration.toString())
+                    .joinToString("") { "${it.length}:$it" }
+        }, media.path)
 
     private fun mediaKey(media: PlaybackExtensionPoint.MediaItem): String = identityFor(media).let { "${it.id}|${it.path}" }
 

@@ -20,7 +20,7 @@ ObjectName：`io.github.gaboron.amllspw:type=TtmlReceiver,version=1`
 | `selectLyrics(String trackId, String audioPath, String ttml, long offsetMs)` | 返回 `boolean`，声明宿主当前采用的歌词来源；TTML 优先于本地发现，空字符串表示跟随宿主解析的歌词 |
 | `clearTtml(String trackId, String audioPath)` | 返回 `boolean`，撤回当前歌曲的外部 TTML，回退到本地 TTML 或宿主歌词 |
 
-`trackId` 使用 Workshop API 的 `MediaItem.id`，未提供时允许空字符串。`audioPath` 必须填写 `MediaItem.path`；两端 ID 均非空时，ID 和规范化路径必须同时匹配。Windows 路径不区分大小写。
+`trackId` 使用 Workshop API 的 `MediaItem.id`，未提供时允许空字符串。`audioPath` 使用 `MediaItem.path`，文件路径规范化后比较，网络和自定义 URI 按原值比较，两端 ID 均非空时也必须匹配。Windows 文件路径不区分大小写。宿主仅提供稳定 ID 时允许两端路径均为空。私有播放器的会话和曲目身份接入见[通用外部播放 API](https://github.com/GaBoron/SPW-Lyrics/blob/main/docs/external-playback-api.md)。
 
 `submitTtml` 的 `ttml` 必须是未经 SPL 转换的完整 XML。上限为 4,000,000 个字符，禁用 DTD 和外部实体。`offsetMs` 是发送端的额外单曲偏移：正数延后显示，负数提前显示，范围为 ±86,400,000 毫秒。XML 时间戳保持原值；不要先给 XML 加同一份偏移，也不要再次传入 SPW 全局歌词偏移。
 
@@ -40,15 +40,16 @@ import javax.management.ObjectName;
 
 public final class TtmlClient {
     public static boolean submit(String trackId, String path, String rawTtml, long delayMs) {
-        if (path == null || path.isBlank() || rawTtml == null) return false;
+        if (path == null || rawTtml == null
+                || (path.isBlank() && (trackId == null || trackId.isBlank()))) return false;
         return invoke("submitTtml",
-                new Object[]{trackId, path, rawTtml, delayMs},
+                new Object[]{trackId == null ? "" : trackId, path, rawTtml, delayMs},
                 new String[]{"java.lang.String", "java.lang.String", "java.lang.String", "long"});
     }
 
     public static boolean clear(String trackId, String path) {
-        if (path == null || path.isBlank()) return false;
-        return invoke("clearTtml", new Object[]{trackId, path},
+        if (path == null || (path.isBlank() && (trackId == null || trackId.isBlank()))) return false;
+        return invoke("clearTtml", new Object[]{trackId == null ? "" : trackId, path},
                 new String[]{"java.lang.String", "java.lang.String"});
     }
 
