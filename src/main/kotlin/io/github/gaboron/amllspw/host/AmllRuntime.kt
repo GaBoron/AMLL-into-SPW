@@ -58,6 +58,7 @@ internal class AmllRuntime : AutoCloseable {
     }.getOrDefault(false)
     private var key = ""
     private var initialized = false
+    private var selectedMedia: PlaybackExtensionPoint.MediaItem? = null
 
     fun start() {
         preferences.onAnnotationChange = ::lyricsChanged
@@ -185,7 +186,10 @@ internal class AmllRuntime : AutoCloseable {
         val options = preferences.options.value
         val audio = if (externalTrack == null) localMediaPath(media.path) else null
         val languages = if (options.automaticCantoneseRuby) audio?.let(languageReader::read).orEmpty() else emptyList()
-        if (initialized && next == key && !reload) {
+        val metadataChanged = selectedMedia?.let {
+            it.title != media.title || it.artist != media.artist || it.album != media.album || it.duration != media.duration
+        } == true
+        if (initialized && next == key && !reload && !metadataChanged) {
             if (languages != audioLanguages) {
                 audioLanguages = languages
                 refreshDocument(media)
@@ -195,6 +199,7 @@ internal class AmllRuntime : AutoCloseable {
         audioLanguages = languages
         initialized = true
         key = next
+        selectedMedia = media
         val artworkKey = externalTrack?.artworkKey ?: media.id
         val artwork = covers.load(artworkKey)
         val ready = artwork.isDone
@@ -277,6 +282,7 @@ internal class AmllRuntime : AutoCloseable {
     }
     private fun clear() {
         key = ""; initialized = false; localDocument = null; inbox.close()
+        selectedMedia = null
         audioLanguages = emptyList()
         footerInbox.current(null)
         if (currentIdentity() == null) clock.clear()
