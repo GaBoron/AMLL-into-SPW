@@ -12,16 +12,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.xuncorp.spw.workshop.api.WorkshopApi
+import com.xuncorp.spw.workshop.api.hook.HookHandle
+import com.xuncorp.spw.workshop.api.UnstableSpwWorkshopApi
 import io.github.gaboron.amllspw.ui.PlayerPage
 import io.github.gaboron.amllspw.ui.PlayerMediaButton
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.platform.LocalDensity
 import java.lang.invoke.MethodType
 import java.lang.reflect.Method
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 /** Keeps the host theme provider while selecting either its original content or the rebuilt page. */
+@OptIn(UnstableSpwWorkshopApi::class)
 internal class NativePlayerContent(val target: NativePlayerTarget,
-    private val loader: ClassLoader = WorkshopApi::class.java.classLoader) {
+    private val loader: ClassLoader = WorkshopApi::class.java.classLoader) : AutoCloseable {
     private fun method(member: NativePlayerTarget.Member): Method {
         val type = MethodType.fromMethodDescriptorString(member.descriptor, loader)
         return Class.forName(member.owner.replace('/', '.'), false, loader)
@@ -29,12 +37,80 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
     }
     private val original = method(target.page)
     private val controls = target.controls.mapValues { method(it.value) }
+    private val chrome = target.chrome.associateWith { method(it.member) }
+    private val glass = method(target.glass)
+    @Suppress("UNCHECKED_CAST")
+    private val sheetLocal = method(target.sheetLocal).invoke(null) as CompositionLocal<Any>
+    private val sheetExpanded = method(target.sheetExpanded)
     private val actions = runCatching { NativePlayerActions(loader) }.getOrNull()
+    private val handles = mutableListOf<HookHandle>()
+    private var ready by mutableStateOf(false)
+    private var rebuildPage by mutableStateOf(false)
+    private var preferenceCollection: Job? = null
+
+    /** Enable the page and its surrounding layers together, after every hook is installed. */
+    fun install(runtime: AmllRuntime, menu: NativeLyricsMenu?) {
+        check(handles.isEmpty() && preferenceCollection == null)
+        // The method-entry hook must read observable state without inserting composable
+        // groups before the host's restart group. One owned collector also synchronizes all layers.
+        preferenceCollection = CoroutineScope(Dispatchers.Default).launch(start = CoroutineStart.UNDISPATCHED) {
+            runtime.preferences.options.collect { rebuildPage = it.rebuildPlayerPage }
+        }
+        for ((layer, originalLayer) in chrome) {
+            handles += WorkshopApi.hookRegistrar.replaceComposable(layer.member.owner.replace('/', '.'),
+                layer.member.name, layer.caller.replace('/', '.'), layer.member.parameters) { call ->
+                Chrome(runtime, originalLayer, call.arguments)
+            }
+        }
+        // The glass wrapper also calls itself from its restart callback, so Workshop's
+        // single-call UI replacement cannot target it. Change its material flag at entry.
+        handles += WorkshopApi.hookRegistrar.hookMethod(target.glass.owner.replace('/', '.'),
+            target.glass.name, glass.parameterTypes.map { it.name }) {
+            before { call -> filterGlass(runtime, call.args) }
+        }
+        handles += WorkshopApi.hookRegistrar.replaceComposable(target.page.owner.replace('/', '.'),
+            target.page.name, target.caller.replace('/', '.'), target.parameters) { call ->
+            Content(runtime, call.arguments, menu)
+        }
+        ready = true
+    }
+
+    override fun close() {
+        ready = false
+        preferenceCollection?.cancel()
+        preferenceCollection = null
+        val old = handles.asReversed().toTypedArray()
+        handles.clear()
+        closePluginResources(*old)
+    }
+
+    private fun rebuilding(runtime: AmllRuntime): Boolean = ready && runtime.isActive && rebuildPage
+
+    @Composable
+    private fun hideNativeChrome(runtime: AmllRuntime): Boolean =
+        rebuilding(runtime) && sheetExpanded.invoke(currentComposer.consume(sheetLocal)) == true
+
+    private fun filterGlass(runtime: AmllRuntime, arguments: Array<Any?>) {
+        val composer = arguments[4] as Composer
+        if (rebuilding(runtime) && sheetExpanded.invoke(composer.consume(sheetLocal)) == true) {
+            arguments[1] = false
+            // Re-evaluate the changed boolean instead of reusing the caller's flags.
+            arguments[5] = (arguments[5] as Int) and (7 shl 3).inv()
+        }
+    }
+
+    @Composable
+    private fun Chrome(runtime: AmllRuntime, original: Method, arguments: List<Any?>) {
+        // Read the native snapshot state in composition so collapsing the sheet restores
+        // the cover and mini player even when the rebuilt page itself is no longer composed.
+        if (hideNativeChrome(runtime)) return
+        val flags = List(original.parameterCount - arguments.size - 1) { 0 }
+        original.invoke(null, *(arguments + currentComposer + flags).toTypedArray())
+    }
 
     @Composable
     fun Content(runtime: AmllRuntime, arguments: List<Any?>, menu: NativeLyricsMenu?) {
-        val options by runtime.preferences.options.collectAsState()
-        if (!options.rebuildPlayerPage || !runtime.isActive) {
+        if (!rebuilding(runtime)) {
             original.invoke(null, arguments[0], arguments[1], currentComposer, 0)
             return
         }

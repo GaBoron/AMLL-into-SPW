@@ -8,7 +8,7 @@ import io.github.gaboron.amllspw.interop.FooterBridge
 @OptIn(UnstableSpwWorkshopApi::class)
 class AmllPlugin(context: PluginContext) : SpwPlugin(context) {
     private var handle: HookHandle? = null
-    private var playerHandle: HookHandle? = null
+    private var playerHandle: AutoCloseable? = null
     private var active: AmllRuntime? = null
     private var bridge: TtmlBridge? = null
     private var footerBridge: FooterBridge? = null
@@ -34,12 +34,18 @@ class AmllPlugin(context: PluginContext) : SpwPlugin(context) {
             }
             runCatching {
                 val player = NativePlayerContent(NativePlayerTarget.discover())
-                val page = player.target
-                playerHandle = WorkshopApi.hookRegistrar.replaceComposable(page.page.owner.replace('/', '.'),
-                    page.page.name, page.caller.replace('/', '.'), page.parameters) { call ->
-                    player.Content(created, call.arguments, menu)
-                }
+                playerHandle = player
+                player.install(created, menu)
             }.onFailure {
+                val failed = playerHandle
+                playerHandle = null
+                try {
+                    failed?.close()
+                } catch (cleanup: Throwable) {
+                    cleanupFailure = cleanup
+                    it.addSuppressed(cleanup)
+                    throw it
+                }
                 System.err.println("AMLL: 播放页重构入口不可用，保留原版页面：${it.message}")
             }
             active = created
