@@ -15,7 +15,8 @@ import androidx.compose.ui.graphics.toArgb
 @Composable
 @OptIn(ExperimentalAnimationApi::class)
 internal fun LyricsScene(presentation: LyricsPresentation, options: RenderOptions, modifier: Modifier,
-    onNextPoem: (String) -> Unit, foregroundColor: Color? = null, lyrics: @Composable (LyricsPresentation) -> Unit) {
+    onNextPoem: (String) -> Unit, foregroundColor: Color? = null, horizontalPaddingDp: Float? = null,
+    lyrics: @Composable (LyricsPresentation) -> Unit) {
     val transition = updateTransition(presentation, label = "lyrics scene")
     transition.Crossfade(modifier = modifier, animationSpec = tween(if (options.reducedMotion) 0 else 320),
         contentKey = {
@@ -29,7 +30,7 @@ internal fun LyricsScene(presentation: LyricsPresentation, options: RenderOption
         if (scene.isInstrumental && poem != null) {
             val footer = remember(scene.document, scene.footer) { LyricFooterContent.from(scene.document, scene.footer) }
             InstrumentalPoetrySurface(poem, options, foregroundColor?.toArgb() ?: scene.lyricColor,
-                Modifier.fillMaxSize(), footer) { onNextPoem(scene.trackKey) }
+                Modifier.fillMaxSize(), footer, horizontalPaddingDp) { onNextPoem(scene.trackKey) }
         } else {
             lyrics(scene)
         }

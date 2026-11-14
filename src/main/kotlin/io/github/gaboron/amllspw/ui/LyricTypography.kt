@@ -43,7 +43,7 @@ internal data class LyricTypography(
     )
 
     companion object {
-        private val sizes = setOf(18, 20, 22, 24, 26, 28, 30, 32, 36, 40, 44, 48, 56, 64, 72)
+        private val sizes = setOf(18, 20, 22, 24, 26, 28, 30, 32, 36, 40, 44, 48, 52, 56, 64, 72)
 
         fun fromPreferences(weight: String, size: String) = LyricTypography(
             weight = LyricFontWeight.fromPreference(weight),

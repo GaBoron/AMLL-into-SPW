@@ -15,6 +15,7 @@ internal class NativePlayerActions(loader: ClassLoader = WorkshopApi::class.java
     private val changeVolume = controllerType.getMethod("changeVolume", Float::class.javaPrimitiveType)
     private val getQueue = controllerType.getMethod("getPlaybackQueueState")
     private val changeMode = controllerType.getMethod("changePlaybackMode", modeType)
+    private val playerState = runCatching { controllerType.getMethod("getPlayerState") }.getOrNull()
     private val modeGetter = Class.forName("com.xuncorp.spc.core.queue.PlaybackQueueState", false, loader).methods
         .single { it.parameterCount == 0 && it.returnType == modeType }
     init {
@@ -24,6 +25,7 @@ internal class NativePlayerActions(loader: ClassLoader = WorkshopApi::class.java
     }
 
     fun volume(): Float = (getVolume.invoke(config) as Float).coerceIn(0f, 1f)
+    fun buffering(): Boolean = (playerState?.invoke(controller) as? Enum<*>)?.name == "Buffering"
     fun volume(value: Float) {
         val bounded = value.coerceIn(0f, 1f)
         updateVolume.invoke(config, bounded)

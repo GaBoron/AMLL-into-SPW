@@ -28,7 +28,8 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
     onPlaying: () -> Boolean? = { null }, onSeekGeneration: () -> Long = { 0 },
     bottomContent: LyricFooterContent? = null, onPlaybackRate: () -> Float? = { null },
     onPlaybackSample: (() -> PlaybackClock.Sample)? = null,
-    alignPosition: Float = .35f, alignAnchor: Float = .35f, foregroundColor: Color? = null) {
+    alignPosition: Float = .35f, alignAnchor: Float = .35f, foregroundColor: Color? = null,
+    horizontalPaddingDp: Float? = null) {
     val measurer = rememberTextMeasurer(cacheSize = 1_024)
     val painter = remember(measurer) { LyricLinePainter(measurer) }
     DisposableEffect(painter) { onDispose { painter.close() } }
@@ -100,7 +101,7 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
         val position = (hostPosition - presentation.offsetMs).coerceAtLeast(0)
         val seek = clock.discontinuity
         val fontSize = options.typography.fontSize(size.width / density.density)
-        val margin = size.width * .075f
+        val margin = horizontalPaddingDp?.let { it * density.density } ?: (size.width * .075f)
         val width = (size.width - margin * 2).roundToInt().coerceAtLeast(1)
         if (cache.width != width || cache.fontSize != fontSize) {
             cache.width = width

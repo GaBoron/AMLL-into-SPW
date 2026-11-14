@@ -21,11 +21,12 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import io.github.gaboron.amllspw.timeline.PlaybackClock
 import kotlinx.coroutines.delay
 
 internal data class PlayerLyricFraming(val position: Float = .35f, val anchor: Float = .35f,
-    val fontSize: Int? = null, val color: Color? = null)
+    val fontSize: Int? = null, val color: Color? = null, val horizontalPaddingDp: Float? = null)
 internal val LocalPlayerLyricFraming = staticCompositionLocalOf { PlayerLyricFraming() }
 
 @Composable
@@ -35,6 +36,8 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
     readMode: () -> String? = { null }, onMode: (String) -> Unit = {},
     pageMenu: (@Composable (Float) -> Unit)? = null, lyrics: @Composable () -> Unit) {
     var hiddenLyrics by remember { mutableStateOf(false) }
+    val transportState = remember { PlayerTransportState() }
+    val readPlayback = { transportState.sample(presentation.trackKey, onPlayback()) }
     var coverDirection by remember { mutableIntStateOf(1) }
     LaunchedEffect(presentation.trackKey) { delay(800); coverDirection = 1 }
     val lyricVisibility by animateFloatAsState(if (hiddenLyrics) 0f else 1f,
@@ -69,8 +72,8 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
                 if (pageMenu != null) pageMenu(style.menuSize)
                 else PlayerMediaButton("更多", "icon_more", style.menuSize, style.menuSize * .72f, onClick = onMore)
             }
-            PlayerArtwork(presentation, Modifier.offset(cover.left.dp, cover.top.dp).size(cover.width.dp),
-                viewportHeight = style.height, coverSize = cover.width, onPlayback = onPlayback,
+            PlayerArtwork(presentation, Modifier.offset(cover.left.dp, cover.top.dp).size(cover.width.dp).zIndex(1f),
+                viewportHeight = style.height, coverSize = cover.width, onPlayback = readPlayback,
                 reducedMotion = options.reducedMotion, direction = coverDirection,
                 toggleLabel = if (hiddenLyrics) "显示歌词" else "隐藏歌词", onToggleLyrics = { hiddenLyrics = !hiddenLyrics })
             if (!style.vertical || movement > .001f) {
@@ -81,30 +84,30 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
                 PlayerControls(presentation, style, options,
                     Modifier.offset((if (style.vertical) style.edge else cover.left).dp, controlsTop.dp)
                         .size(controlsWidth.dp, controlsHeight.dp)
+                        .zIndex(1f)
                         .graphicsLayer { alpha = if (style.vertical) movement else 1f },
-                    onPlayback, onSeek, { command ->
+                    readPlayback, onSeek, { command ->
                         if (command == "previous" || command == "next") coverDirection = if (command == "previous") -1 else 1
+                        transportState.request(command)
                         onTransport(command)
                     }, readVolume, onVolume, readMode, onMode, queue = queue,
                     info = { PlayerTrackInfo(presentation, style.infoSize, options.reducedMotion, menu) })
             }
             if (style.vertical && lyricVisibility > .001f) {
                 Row(Modifier.offset(style.edge.dp, style.smallHeaderTop.dp).width((style.width - style.edge * 2).dp)
-                    .height(style.smallCover.dp).graphicsLayer { alpha = lyricVisibility }, verticalAlignment = Alignment.CenterVertically) {
+                    .height(style.smallCover.dp).zIndex(1f).graphicsLayer { alpha = lyricVisibility }, verticalAlignment = Alignment.CenterVertically) {
                     Spacer(Modifier.width((style.smallCover + style.em).dp))
                     Box(Modifier.weight(1f)) { PlayerTrackInfo(presentation, style.smallInfoSize, options.reducedMotion, menu) }
                 }
             }
             if (lyricVisibility > .001f) {
                 val top = if (style.vertical) style.lyricTop else maxOf(30f, style.coverTop - style.height * .04f)
-                val left = if (style.vertical) 0f else style.width * .45f + style.gap
-                val rightPadding = if (style.vertical) 0f else (style.width * .55f) * (if (style.width <= 1600 || style.height <= 1000) .08f else .15f)
                 val height = style.height - top - if (style.vertical) 0f else 48f
                 val position = if (style.vertical) .1f else ((style.coverCenter - top) / height).coerceIn(0f, 1f)
                 val fontSize = maxOf(style.height * .05f, style.width * .025f, 14f).toInt()
                 CompositionLocalProvider(LocalPlayerLyricFraming provides PlayerLyricFraming(position,
-                    if (style.vertical) 0f else .5f, fontSize, color)) {
-                    Box(Modifier.offset(left.dp, top.dp).size((style.width - left - rightPadding).dp, height.dp)
+                    if (style.vertical) 0f else .5f, fontSize, color, style.lyricDrawingPadding)) {
+                    Box(Modifier.offset(style.lyricCanvasLeft.dp, top.dp).size(style.lyricCanvasWidth.dp, height.dp)
                         .graphicsLayer {
                             alpha = lyricVisibility
                             translationX = (1f - lyricVisibility) * 40.dp.toPx()

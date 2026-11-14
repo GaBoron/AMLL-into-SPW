@@ -23,6 +23,13 @@ internal data class AmllPlayerStyle(val width: Float, val height: Float,
     private val controlsMargin = -8f + em * 1.75f
     private val horizontal = horizontalGrid()
     val coverSize = horizontal.cover
+    val outerGutter = if (vertical) edge else maxOf(edge, (width * .45f - coverSize) / 2f)
+    // Keep drawing room for lyric glow without adding a second inset to the visible content edges.
+    val lyricDrawingPadding = minOf(32f, outerGutter * .5f)
+    val lyricContentLeft = if (vertical) outerGutter else width * .45f + gap + outerGutter * .5f
+    val lyricContentRight = width - outerGutter
+    val lyricCanvasLeft = lyricContentLeft - lyricDrawingPadding
+    val lyricCanvasWidth = lyricContentRight - lyricContentLeft + lyricDrawingPadding * 2f
     val coverTop = horizontal.drag + gap * 2f + thumbRow
     val coverCenter = coverTop + coverSize * .5f
     val controlsTop = coverTop + coverSize + gap + controlsMargin
@@ -84,8 +91,8 @@ internal data class AmllPlayerStyle(val width: Float, val height: Float,
     }
     fun cover(hiddenLyrics: Boolean): Rect {
         if (!vertical) {
-            val centerX = width * if (hiddenLyrics) .5f else .225f
-            return Rect(centerX - coverSize / 2, coverTop, centerX + coverSize / 2, coverTop + coverSize)
+            val left = if (hiddenLyrics) (width - coverSize) / 2f else outerGutter
+            return Rect(left, coverTop, left + coverSize, coverTop + coverSize)
         }
         val size = if (hiddenLyrics) minOf(width - edge * 2,
             (height - smallHeaderTop - em - verticalControlsHeight - 24f).coerceAtLeast(0f)) else smallCover

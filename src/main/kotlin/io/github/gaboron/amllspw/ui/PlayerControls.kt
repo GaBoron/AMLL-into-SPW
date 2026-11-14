@@ -97,7 +97,10 @@ internal fun PlayerControls(presentation: LyricsPresentation, style: AmllPlayerS
                 val playing = playback.playing == true
                 PlayerMediaButton(if (playing) "暂停" else "播放", if (playing) "icon_pause" else "icon_play", buttonSize.value,
                     if (style.vertical) 38f * (if (style.width <= 480) 1.25f else 1.75f) else 38f * style.playScale,
-                    transportEnabled, options.reducedMotion) { onTransport(if (playing) "pause" else "play") }
+                    transportEnabled, options.reducedMotion) {
+                    playback = playback.copy(playing = !playing)
+                    onTransport(if (playing) "pause" else "play")
+                }
                 PlayerMediaButton("下一首", "icon_forward", buttonSize.value,
                     if (style.vertical) 32f * (if (style.width <= 480) 2f else 2.5f) else 32f * style.mediaScale,
                     transportEnabled, options.reducedMotion) { onTransport("next") }

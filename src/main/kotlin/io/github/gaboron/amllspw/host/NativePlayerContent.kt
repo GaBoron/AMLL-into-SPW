@@ -11,6 +11,7 @@ import io.github.gaboron.amllspw.ui.PlayerPage
 import io.github.gaboron.amllspw.ui.PlayerMediaButton
 import java.lang.invoke.MethodType
 import java.lang.reflect.Method
+import java.lang.StackWalker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +39,7 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
     private val sheetExpanded = method(target.sheetExpanded)
     private val actions = runCatching { NativePlayerActions(loader) }.getOrNull()
     private val handles = mutableListOf<HookHandle>()
+    private val callStack = StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE)
     private var ready by mutableStateOf(false)
     private var rebuildPage by mutableStateOf(false)
     private var sheetState: Any? by mutableStateOf(null)
@@ -61,7 +63,7 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
         // material-mode getter so the host keeps its layout and content composition intact.
         handles += WorkshopApi.hookRegistrar.hookMethod(target.glassEnabled.owner.replace('/', '.'),
             target.glassEnabled.name, emptyList()) {
-            before { call -> if (hideGlass(runtime)) call.setResult(false) }
+            before { call -> if (hideGlass(runtime) && isGlassCallSite()) call.setResult(false) }
         }
         handles += WorkshopApi.hookRegistrar.replaceComposable(target.page.owner.replace('/', '.'),
             target.page.name, target.caller.replace('/', '.'), target.parameters) { call ->
@@ -95,6 +97,19 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
     private fun hideGlass(runtime: AmllRuntime): Boolean = rebuilding(runtime) &&
         sheetState?.let { sheetExpanded.invoke(it) == true } == true
 
+    /** The same mode getter also styles navigation and the collapsed capsule. Leave those calls native. */
+    private fun isGlassCallSite(): Boolean = callStack.walk { frames ->
+        val stack = frames.iterator()
+        fun matches(frame: StackWalker.StackFrame, member: NativePlayerTarget.Member) =
+            frame.className == member.owner.replace('/', '.') && frame.methodName == member.name && frame.descriptor == member.descriptor
+        while (stack.hasNext()) {
+            if (matches(stack.next(), target.glassEnabled)) {
+                return@walk stack.hasNext() && matches(stack.next(), target.glassCaller)
+            }
+        }
+        false
+    }
+
     @Composable
     private fun Chrome(runtime: AmllRuntime, original: Method, arguments: List<Any?>) {
         // Read the native snapshot state in composition so collapsing the sheet restores
@@ -106,7 +121,7 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
 
     @Composable
     fun Content(runtime: AmllRuntime, arguments: List<Any?>, menu: NativeLyricsMenu?) {
-        if (!rebuilding(runtime)) {
+        if (!hideNativeChrome(runtime)) {
             original.invoke(null, arguments[0], arguments[1], currentComposer, 0)
             return
         }
@@ -119,7 +134,11 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
         val options by runtime.preferences.options.collectAsState()
         val presentation by runtime.presentation.collectAsState()
         PlayerPage(presentation, options, Modifier.fillMaxSize(),
-            onPlayback = { runtime.clock.sample(presentation.trackKey) },
+            onPlayback = {
+                val sample = runtime.clock.sample(presentation.trackKey)
+                val buffering = !presentation.externalPlayback && runCatching { actions?.buffering() == true }.getOrDefault(false)
+                if (buffering) sample.copy(playing = null) else sample
+            },
             onSeek = { position ->
                 runCatching { runtime.seekTo(presentation.trackKey, position) }.onFailure {
                     WorkshopApi.ui.toast("播放跳转失败：${it.message}", WorkshopApi.Ui.ToastType.Warning)

@@ -13,6 +13,7 @@ internal data class NativePlayerTarget(
     val popups: Map<String, Popup>,
     val chrome: List<Chrome>,
     val glassEnabled: Member,
+    val glassCaller: Member,
     val sheetLocal: Member,
     val sheetExpanded: Member,
 ) {
@@ -181,7 +182,7 @@ internal data class NativePlayerTarget(
                 NativePlayerTarget(theme.member, page.member.owner, controls, popups, listOf(
                     Chrome(cover.member, surface.member.owner, ChromeKind.COVER),
                     Chrome(theme.member, mini.member.owner, ChromeKind.MINI_PLAYER),
-                ), glassEnabled, local, expanded)
+                ), glassEnabled, glassSites.single().first.member, local, expanded)
             }
 
         private fun List<Body>.marked(marker: String): Body =

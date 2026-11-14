@@ -35,7 +35,7 @@ import io.github.gaboron.amllspw.poetry.Poem
 @Composable
 @OptIn(ExperimentalTextApi::class)
 internal fun InstrumentalPoetrySurface(poem: Poem, options: RenderOptions, lyricColor: Int,
-    modifier: Modifier, footer: LyricFooterContent = LyricFooterContent(), onNextPoem: () -> Unit) {
+    modifier: Modifier, footer: LyricFooterContent = LyricFooterContent(), horizontalPaddingDp: Float? = null, onNextPoem: () -> Unit) {
     val nextPoem by rememberUpdatedState(onNextPoem)
     val color = if (options.coloredLyrics) Color(lyricColor) else Color.White
     val footerSections = footer.sections
@@ -44,7 +44,7 @@ internal fun InstrumentalPoetrySurface(poem: Poem, options: RenderOptions, lyric
         val headingSize = options.typography.fontSize(maxWidth.value)
         // Keep the reading scale independent of large lyric-font preferences.
         val readingSize = (maxWidth.value / 21f).coerceIn(18f, 26f)
-        val margin = maxWidth * .075f
+        val margin = horizontalPaddingDp?.dp ?: (maxWidth * .075f)
         if (options.hidePoetry) {
             CenteredInstrumental(options, color, headingSize, footerSections,
                 Modifier.fillMaxSize().padding(horizontal = margin))

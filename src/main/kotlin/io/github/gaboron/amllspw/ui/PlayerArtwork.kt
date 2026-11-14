@@ -46,7 +46,7 @@ internal fun PlayerArtwork(presentation: LyricsPresentation, modifier: Modifier,
     Box(modifier.graphicsLayer {
         scaleX = 1f - .18f * pause
         scaleY = scaleX
-        translationX = -coverSize.dp.toPx() * .055f * pause
+        transformOrigin = TransformOrigin(0f, .5f)
     }.clickable(role = Role.Button, onClickLabel = toggleLabel, onClick = onToggleLyrics)
         .semantics { contentDescription = toggleLabel }) {
         if (pause > .001f && coverSize > 100f) Canvas(Modifier.fillMaxSize().graphicsLayer {
