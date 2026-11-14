@@ -5,7 +5,7 @@ import org.objectweb.asm.*
 import java.io.File
 import java.util.jar.JarFile
 
-/** The page hook is optional. Unknown signatures or ambiguous call sites leave the native page intact. */
+/** Replaces the page's explicit content slot; Workshop skips replacements with nonzero default masks. */
 internal data class NativePlayerTarget(
     val page: Member,
     val caller: String,
@@ -15,11 +15,12 @@ internal data class NativePlayerTarget(
     private data class Call(val target: Member, val opcode: Int, val defaultMask: Int?)
     private data class Body(val member: Member, val access: Int, val markers: List<String>, val calls: List<Call>)
 
-    val parameters: List<String> get() = Type.getArgumentTypes(page.descriptor).take(4).map { it.className }
+    val parameters: List<String> get() = Type.getArgumentTypes(page.descriptor).take(2).map { it.className }
 
     companion object {
         private const val PAGE = "com.xuncorp.voxzen.ui.player.PlayerScreen (PlayerScreen.kt:"
         private const val SHEET = "com.xuncorp.voxzen.ui.main.surface.PlayerBottomSheet.<anonymous>.<anonymous> (MainSurface.kt:"
+        private const val THEME = "com.moriafly.salt.ui.ChangeSaltThemeIsDark (SaltTheme.kt:"
         private const val COMPOSER = "Landroidx/compose/runtime/Composer;"
         private val controlMarkers = mapOf(
             "mode" to "com.xuncorp.voxzen.ui.player.mini.PlatformPlaybackModeControl (",
@@ -34,7 +35,7 @@ internal data class NativePlayerTarget(
                     if (!entry.name.endsWith(".class")) continue
                     val bytes = jar.getInputStream(entry).use { it.readBytes() }
                     val pool = String(bytes, Charsets.ISO_8859_1)
-                    if (PAGE in pool || SHEET in pool || controlMarkers.values.any { it in pool }) bodies += read(bytes)
+                    if (PAGE in pool || SHEET in pool || THEME in pool || controlMarkers.values.any { it in pool }) bodies += read(bytes)
                 }
                 val page = bodies.filter { body -> body.markers.any { it.startsWith(PAGE) } }.singleOrNull()
                     ?: error("无法唯一确认播放页面入口")
@@ -51,12 +52,23 @@ internal data class NativePlayerTarget(
                 val (caller, call) = sites.single()
                 require(caller.markers.any { it.startsWith(SHEET) } && call.opcode == Opcodes.INVOKESTATIC &&
                     call.defaultMask in listOf(0, 8)) { "播放页面调用约定已改变" }
+                val theme = bodies.singleOrNull { body ->
+                    body.markers.any { it.startsWith(THEME) } && body.access and Opcodes.ACC_STATIC != 0 &&
+                        body.member.descriptor == "(ZLkotlin/jvm/functions/Function2;${COMPOSER}I)V"
+                } ?: error("无法唯一确认播放页面内容容器")
+                // The outer PlayerScreen call omits Modifier (mask 8), so a registered
+                // replacement there is bypassed. Its theme/content call has no default mask.
+                val contentSites = bodies.filter { it.member.owner == page.member.owner }.flatMap { body ->
+                    body.calls.filter { it.target == theme.member }.map { body to it }
+                }
+                require(contentSites.size == 1 && contentSites.single().first.member == page.member &&
+                    contentSites.single().second.opcode == Opcodes.INVOKESTATIC) { "播放页面内容调用不唯一" }
                 val controls = controlMarkers.mapNotNull { (role, marker) ->
                     bodies.singleOrNull { body -> body.markers.any { it.startsWith(marker) } &&
                         body.access and Opcodes.ACC_STATIC != 0 && body.member.descriptor == "(J${COMPOSER}I)V"
                     }?.let { role to it.member }
                 }.toMap()
-                NativePlayerTarget(page.member, caller.member.owner, controls)
+                NativePlayerTarget(theme.member, page.member.owner, controls)
             }
 
         private fun read(bytes: ByteArray): List<Body> {

@@ -19,7 +19,7 @@ import androidx.compose.ui.platform.LocalDensity
 import java.lang.invoke.MethodType
 import java.lang.reflect.Method
 
-/** Reflection stays at the host boundary, including a direct call to the unmodified native page. */
+/** Keeps the host theme provider while selecting either its original content or the rebuilt page. */
 internal class NativePlayerContent(val target: NativePlayerTarget,
     private val loader: ClassLoader = WorkshopApi::class.java.classLoader) {
     private fun method(member: NativePlayerTarget.Member): Method {
@@ -35,11 +35,16 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
     fun Content(runtime: AmllRuntime, arguments: List<Any?>, menu: NativeLyricsMenu?) {
         val options by runtime.preferences.options.collectAsState()
         if (!options.rebuildPlayerPage || !runtime.isActive) {
-            // Normalize the optional modifier before calling with an explicit default mask of zero.
-            original.invoke(null, arguments[0], arguments[1], arguments[2],
-                arguments.getOrNull(3) as? Modifier ?: Modifier, currentComposer, 0, 0)
+            original.invoke(null, arguments[0], arguments[1], currentComposer, 0)
             return
         }
+        val content: @Composable () -> Unit = { RebuiltPage(runtime, menu) }
+        original.invoke(null, arguments[0], content, currentComposer, 0)
+    }
+
+    @Composable
+    private fun RebuiltPage(runtime: AmllRuntime, menu: NativeLyricsMenu?) {
+        val options by runtime.preferences.options.collectAsState()
         val presentation by runtime.presentation.collectAsState()
         val restore = {
             runCatching { runtime.preferences.setRebuildPlayerPage(false) }.onFailure {
@@ -47,7 +52,7 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
             }
             Unit
         }
-        PlayerPage(presentation, options, arguments.getOrNull(3) as? Modifier ?: Modifier,
+        PlayerPage(presentation, options, Modifier.fillMaxSize(),
             onPlayback = { runtime.clock.sample(presentation.trackKey) },
             onSeek = { position ->
                 runCatching { runtime.seekTo(presentation.trackKey, position) }.onFailure {
