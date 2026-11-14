@@ -67,6 +67,40 @@ internal class ExternalPlaybackClient {
         } else false
     }.getOrDefault(false)
 
+    fun supportsTransport(track: ExternalPlayback): Boolean = runCatching {
+        val operations = server.getMBeanInfo(track.sourceName).operations
+        operations.any {
+            it.name == "control" && it.signature.map { argument -> argument.type } == CONTROL_SIGNATURE.toList()
+        } || setOf("play", "pause", "previous", "next").all { command ->
+            operations.any { it.name == command && it.signature.isEmpty() }
+        }
+    }.getOrDefault(false)
+
+    fun volume(track: ExternalPlayback, percent: Int): Boolean = runCatching {
+        if (snapshot()?.identity != track.identity) return false
+        val operations = server.getMBeanInfo(track.sourceName).operations
+        if (operations.any { it.name == "control" && it.signature.map { arg -> arg.type } == CONTROL_SIGNATURE.toList() }) {
+            server.invoke(track.sourceName, "control",
+                arrayOf<Any>(track.sessionId, track.trackRevision, track.uri, "volume", percent.coerceIn(0, 100).toLong()), CONTROL_SIGNATURE) == true
+        } else if (operations.any { it.name == "setVolume" && it.signature.map { arg -> arg.type } == listOf("int") }) {
+            server.invoke(track.sourceName, "setVolume", arrayOf<Any>(percent.coerceIn(0, 100)), arrayOf("int")) == true
+        } else false
+    }.getOrDefault(false)
+
+    fun transport(track: ExternalPlayback, command: String): Boolean = runCatching {
+        if (command !in setOf("play", "pause", "previous", "next") || snapshot()?.identity != track.identity) return false
+        val operations = server.getMBeanInfo(track.sourceName).operations
+        if (operations.any { it.name == "control" && it.signature.map { argument -> argument.type } == CONTROL_SIGNATURE.toList() }) {
+            server.invoke(track.sourceName, "control",
+                arrayOf<Any>(track.sessionId, track.trackRevision, track.uri, command, 0L), CONTROL_SIGNATURE) == true
+        } else if (operations.any { it.name == command && it.signature.isEmpty() }) {
+            // Older sources expose transport without identity arguments; recheck immediately before dispatch.
+            if (snapshot()?.identity != track.identity) return false
+            server.invoke(track.sourceName, command, emptyArray<Any>(), emptyArray<String>())
+            true
+        } else false
+    }.getOrDefault(false)
+
     private companion object {
         val SOURCES = ObjectName("dev.gaboron.spw:type=ExternalPlayback,version=1,*")
         val CONTROL_SIGNATURE = arrayOf("java.lang.String", "long", "java.lang.String", "java.lang.String", "long")

@@ -8,6 +8,7 @@ import io.github.gaboron.amllspw.interop.FooterBridge
 @OptIn(UnstableSpwWorkshopApi::class)
 class AmllPlugin(context: PluginContext) : SpwPlugin(context) {
     private var handle: HookHandle? = null
+    private var playerHandle: HookHandle? = null
     private var active: AmllRuntime? = null
     private var bridge: TtmlBridge? = null
     private var footerBridge: FooterBridge? = null
@@ -31,6 +32,16 @@ class AmllPlugin(context: PluginContext) : SpwPlugin(context) {
                 // Argument 7 is "activated", not "showSubText".
                 NativeLyricsContent(created, arguments.modifier, true, menu)
             }
+            runCatching {
+                val player = NativePlayerContent(NativePlayerTarget.discover())
+                val page = player.target
+                playerHandle = WorkshopApi.hookRegistrar.replaceComposable(page.page.owner.replace('/', '.'),
+                    page.page.name, page.caller.replace('/', '.'), page.parameters) { call ->
+                    player.Content(created, call.arguments, menu)
+                }
+            }.onFailure {
+                System.err.println("AMLL: 播放页重构入口不可用，保留原版页面：${it.message}")
+            }
             active = created
             current = created
             bridge = TtmlBridge(TtmlReceiver(created))
@@ -51,10 +62,11 @@ class AmllPlugin(context: PluginContext) : SpwPlugin(context) {
     private fun release(runtime: AmllRuntime, failure: Throwable? = null) {
         if (current === runtime) current = null
         active = null
-        val resources = arrayOf(runtime, footerBridge, bridge, handle)
+        val resources = arrayOf(runtime, footerBridge, bridge, playerHandle, handle)
         footerBridge = null
         bridge = null
         handle = null
+        playerHandle = null
         val previousFailures = failure?.suppressed?.size ?: 0
         try {
             closePluginResources(*resources, cause = failure)

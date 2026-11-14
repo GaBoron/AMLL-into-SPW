@@ -54,7 +54,8 @@ internal class ViewportMotion {
     fun update(groups: List<GroupLayout>, activeGroup: Int, timeMs: Long, dt: Float, now: Long, seek: Boolean,
         interludeBefore: Int? = null, slotHeight: Float = 0f, playing: Boolean? = null, hidePassed: Boolean = false, immediate: Boolean = false,
         playbackRate: Float = 1f,
-        footerHeight: Float = 0f, endOfLyrics: Boolean = false, footerBlurEnabled: Boolean = true): List<RowMotion> {
+        footerHeight: Float = 0f, endOfLyrics: Boolean = false, footerBlurEnabled: Boolean = true,
+        alignPosition: Float = .35f, alignAnchor: Float = .35f): List<RowMotion> {
         lastNow = now
         seekFollow.update(timeMs, now)
         val manual = isManual(now)
@@ -106,9 +107,9 @@ internal class ViewportMotion {
             focus = motionFocus; focusStamp = now
         }
         val focal = if (footerFocused) geometry.footerTop + footerHeight * .5f else
-            geometry.interludeTop?.let { it + slotHeight / 2 } ?: (geometry.tops[focusIndex] + geometry.mainHeights[focusIndex] * .35f)
-        val aligned = focal - height * .35f
-        val maxOffset = if (footerPresent) maxOf(0f, geometry.totalHeight - height * .35f) else maxOf(0f, geometry.tops.last())
+            geometry.interludeTop?.let { it + slotHeight / 2 } ?: (geometry.tops[focusIndex] + geometry.mainHeights[focusIndex] * alignAnchor)
+        val aligned = focal - height * alignPosition
+        val maxOffset = if (footerPresent) maxOf(0f, geometry.totalHeight - height * alignPosition) else maxOf(0f, geometry.tops.last())
         val followOffset = if (overflow.latestOnly) aligned else lyricScrollAnchor(groups, geometry, timeMs, height, aligned,
             focus = focusIndex.takeIf { !footerFocused && interludeBefore == null })
         val offset = if (manual) manualOffset.coerceIn(-height * .65f, maxOffset) else followOffset
@@ -119,7 +120,7 @@ internal class ViewportMotion {
         val layoutShifts = FloatArray(groups.size)
         if (!first && !seek && !immediate && previous != null) {
             fun lyricOffset(layout: LyricGeometry): Float {
-                val preferred = layout.lyricTops[focusIndex] + layout.mainHeights[focusIndex] * .35f - height * .35f
+                val preferred = layout.lyricTops[focusIndex] + layout.mainHeights[focusIndex] * alignAnchor - height * alignPosition
                 return if (overflow.latestOnly) preferred else
                     lyricScrollAnchor(groups, layout, timeMs, height, preferred, focusIndex, includeInterlude = false)
             }

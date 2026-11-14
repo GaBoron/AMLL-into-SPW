@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import io.github.gaboron.amllspw.ui.NativeLyricsSurface
 import io.github.gaboron.amllspw.ui.LyricsScene
+import io.github.gaboron.amllspw.ui.LocalPlayerLyricFraming
 import io.github.gaboron.amllspw.timeline.PlaybackClock
 
 /** Host adapter only: the drawing layer receives values and callbacks, never Workshop API objects. */
@@ -13,9 +14,12 @@ internal fun NativeLyricsContent(runtime: AmllRuntime, modifier: Modifier, showS
     menu: NativeLyricsMenu? = null) {
     val presentation by runtime.presentation.collectAsState()
     val options by runtime.preferences.options.collectAsState()
-    // This hook occupies only the lyrics column. The host owns the whole-page backdrop.
+    val framing = LocalPlayerLyricFraming.current
+    val sceneOptions = if (options.typography.fontSizeSp == null && framing.fontSize != null)
+        options.copy(typography = options.typography.copy(fontSizeSp = framing.fontSize)) else options
+    // The surrounding page owns the backdrop; this surface only draws the lyrics column.
     LyricsContextMenu(runtime, menu, presentation, options, modifier) {
-        LyricsScene(presentation, options, Modifier.fillMaxSize(), runtime::nextPoem) { scene ->
+        LyricsScene(presentation, sceneOptions, Modifier.fillMaxSize(), runtime::nextPoem) { scene ->
             // A departing track keeps its last playhead instead of jumping to zero during the fade.
             val lastPlayback = remember(scene.trackKey) { arrayOf(PlaybackClock.Sample(0L, null, 0L, null)) }
             val readPlayback = {
@@ -24,9 +28,9 @@ internal fun NativeLyricsContent(runtime: AmllRuntime, modifier: Modifier, showS
                 else lastPlayback[0] = lastPlayback[0].copy(playing = false)
                 lastPlayback[0]
             }
-            NativeLyricsSurface(scene, options.copy(background = false), Modifier.fillMaxSize(),
+            NativeLyricsSurface(scene, sceneOptions.copy(background = false), Modifier.fillMaxSize(),
                 { readPlayback().positionMs }, { runtime.seekTo(scene.trackKey, it) }, showSecondary,
-                onPlaybackSample = readPlayback)
+                onPlaybackSample = readPlayback, alignPosition = framing.position, alignAnchor = framing.anchor)
         }
     }
 }

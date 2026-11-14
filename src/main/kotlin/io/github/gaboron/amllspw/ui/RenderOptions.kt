@@ -18,6 +18,7 @@ internal data class RenderOptions(
     val automaticCantoneseRuby: Boolean = false,
     val automaticKoreanRuby: Boolean = false,
     val automaticVocalRoles: Boolean = false,
+    val rebuildPlayerPage: Boolean = false,
     val reducedMotion: Boolean = false,
     val coloredLyrics: Boolean = false,
     val typography: LyricTypography = LyricTypography(),

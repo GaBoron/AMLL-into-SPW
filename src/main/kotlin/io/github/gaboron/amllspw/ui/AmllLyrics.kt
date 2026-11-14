@@ -27,7 +27,8 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
     onTime: () -> Long, onSeek: (Long) -> Unit, showSecondary: Boolean,
     onPlaying: () -> Boolean? = { null }, onSeekGeneration: () -> Long = { 0 },
     bottomContent: LyricFooterContent? = null, onPlaybackRate: () -> Float? = { null },
-    onPlaybackSample: (() -> PlaybackClock.Sample)? = null) {
+    onPlaybackSample: (() -> PlaybackClock.Sample)? = null,
+    alignPosition: Float = .35f, alignAnchor: Float = .35f) {
     val measurer = rememberTextMeasurer(cacheSize = 1_024)
     val painter = remember(measurer) { LyricLinePainter(measurer) }
     DisposableEffect(painter) { onDispose { painter.close() } }
@@ -137,7 +138,8 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
             clock.playbackRate,
             footerHeight = (cache.footer?.height ?: 0f) * contentTransition.footerExpansion,
             endOfLyrics = presentation.document.lines.isNotEmpty() && position >= presentation.document.durationMs,
-            footerBlurEnabled = options.blur && !options.reducedMotion && pointer.position == null)
+            footerBlurEnabled = options.blur && !options.reducedMotion && pointer.position == null,
+            alignPosition = alignPosition, alignAnchor = alignAnchor)
         val manual = viewport.isManual(nanos) || scroll.isScrollInProgress
         cache.backgroundTime += dt * if (position != cache.backgroundPosition) 1f else 0f
         cache.backgroundPosition = position

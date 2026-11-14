@@ -37,6 +37,10 @@
       "config": "amll.json",
       "preferences": [
         {
+          "type": "switch", "key": "rebuild_player_page", "title": "重构播放页面", "default_value": false,
+          "summary": "参考 AMLL Player 重新排布封面、曲目信息、播放控制和歌词；关闭可恢复原版。入口不可用时保留原版播放页。"
+        },
+        {
           "type": "switch", "key": "automatic_japanese_ruby", "title": "自动生成逐字罗马注音", "default_value": false,
           "summary": "为日语歌词补充逐字罗马注音；需开启音译与注音显示，读音可能不准确。"
         },

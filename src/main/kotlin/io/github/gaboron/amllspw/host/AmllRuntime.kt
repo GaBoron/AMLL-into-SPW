@@ -138,6 +138,39 @@ internal class AmllRuntime : AutoCloseable {
         mutablePresentation.value = current.copy(poem = poems.next(trackKey))
     }
 
+    fun transport(trackKey: String, command: String) = enqueue {
+        if (!isActive || presentation.value.trackKey != trackKey ||
+            currentIdentity()?.let { "${it.id}|${it.path}" } != trackKey) return@enqueue
+        val remote = externalTrack
+        if (remote == null && external.snapshot() != null) return@enqueue
+        if (remote != null) {
+            check(external.transport(remote, command)) { "外部音源未接受播放操作，请在音源插件中操作。" }
+        } else when (command) {
+            "play" -> WorkshopApi.playback.play()
+            "pause" -> WorkshopApi.playback.pause()
+            "previous" -> WorkshopApi.playback.previous()
+            "next" -> WorkshopApi.playback.next()
+        }
+    }
+
+    fun externalVolume(trackKey: String): Float? = externalTrack?.takeIf {
+        presentation.value.trackKey == trackKey
+    }?.let { it.volumePercent / 100f }
+
+    fun changeVolume(trackKey: String, value: Float, local: (Float) -> Unit) = enqueue {
+        if (!isActive || presentation.value.trackKey != trackKey ||
+            currentIdentity()?.let { "${it.id}|${it.path}" } != trackKey) return@enqueue
+        val remote = externalTrack
+        if (remote != null) check(external.volume(remote, (value.coerceIn(0f, 1f) * 100).toInt())) {
+            "外部音源未接受音量操作"
+        } else if (external.snapshot() == null) local(value)
+    }
+
+    fun localPlayerAction(trackKey: String, action: () -> Unit) = enqueue {
+        if (isActive && presentation.value.trackKey == trackKey && externalTrack == null && external.snapshot() == null &&
+            currentIdentity()?.let { "${it.id}|${it.path}" } == trackKey) action()
+    }
+
     fun receiveTtml(track: TrackIdentity, xml: String, offsetMs: Long): Boolean {
         if (!isActive) return false
         val accepted = inbox.submit(track, xml, offsetMs, ::currentIdentity)
@@ -205,7 +238,11 @@ internal class AmllRuntime : AutoCloseable {
         val ready = artwork.isDone
         val colors = if (ready) artwork.getNow(null) else null
         val previous = mutablePresentation.value
-        mutablePresentation.value = LyricsPresentation(trackKey = next, palette = colors?.palette ?: previous.palette,
+        mutablePresentation.value = LyricsPresentation(trackKey = next,
+            title = media.title, artist = media.artist, album = media.album, durationMs = media.duration.coerceAtLeast(0),
+            artwork = colors?.artwork, externalPlayback = externalTrack != null,
+            transportAvailable = externalTrack?.let(external::supportsTransport) ?: true,
+            palette = colors?.palette ?: previous.palette,
             lyricColor = colors?.lyric ?: if (ready) 0xffffffff.toInt() else previous.lyricColor, loading = true,
             lyricGlowColor = colors?.glow ?: if (ready) 0xffffffff.toInt() else previous.lyricGlowColor,
             footer = footerInbox.current(identityFor(media)))
@@ -224,6 +261,7 @@ internal class AmllRuntime : AutoCloseable {
             (externalTrack?.artworkKey ?: media.id) == artworkKey &&
             currentIdentity()?.matches(identityFor(media)) == true)
             mutablePresentation.value = current.copy(palette = colors?.palette ?: current.palette,
+                artwork = colors?.artwork,
                 lyricColor = colors?.lyric ?: 0xffffffff.toInt(),
                 lyricGlowColor = colors?.glow ?: 0xffffffff.toInt())
     }

@@ -7,12 +7,16 @@ import java.util.concurrent.CompletionStage
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import javax.imageio.ImageIO
+import java.awt.image.BufferedImage
+import java.awt.RenderingHints
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.toComposeImageBitmap
 
 /** Deduplicated artwork requests and a bounded color cache, independent of lyric IO. */
 internal class CoverPaletteReader(
     private val cover: (String) -> CompletionStage<ByteArray?> = { WorkshopApi.library.getCoverById(it) },
 ) : AutoCloseable {
-    data class Colors(val palette: List<Int>, val lyric: Int, val glow: Int = lyric)
+    data class Colors(val palette: List<Int>, val lyric: Int, val glow: Int = lyric, val artwork: ImageBitmap? = null)
 
     private val decoder = Executors.newSingleThreadExecutor { r -> Thread(r, "amll-cover-colors").apply { isDaemon = true } }
     private val cache = object : LinkedHashMap<String, Colors?>(32, .75f, true) {
@@ -56,7 +60,17 @@ internal class CoverPaletteReader(
             (255 shl 24) or (component(16) shl 16) or (component(8) shl 8) or component(0)
         }
         val accent = CoverLyricColor.accent(CoverLyricColor.dominant(image))
-        return Colors(palette, accent.foreground, accent.glow)
+        // Keep the artwork bounded in the same cache as its colors; never decode on the UI thread.
+        val edge = minOf(512, maxOf(image.width, image.height))
+        val ratio = edge.toDouble() / maxOf(image.width, image.height)
+        val thumbnail = BufferedImage((image.width * ratio).toInt().coerceAtLeast(1),
+            (image.height * ratio).toInt().coerceAtLeast(1), BufferedImage.TYPE_INT_ARGB)
+        val graphics = thumbnail.createGraphics()
+        try {
+            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+            graphics.drawImage(image, 0, 0, thumbnail.width, thumbnail.height, null)
+        } finally { graphics.dispose() }
+        return Colors(palette, accent.foreground, accent.glow, thumbnail.toComposeImageBitmap())
     }
 
     override fun close() {

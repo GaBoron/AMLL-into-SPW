@@ -51,6 +51,7 @@ internal class AmllPreferences : AutoCloseable {
     fun setTranslation(visible: Boolean) = saveBoolean("translation", visible, true)
     fun setRomanization(visible: Boolean) = saveBoolean("romanization", visible, true)
     fun setFooterVisible(visible: Boolean) = saveBoolean("hide_footer", !visible, false)
+    fun setRebuildPlayerPage(enabled: Boolean) = saveBoolean("rebuild_player_page", enabled, false)
 
     private fun saveBoolean(key: String, value: Boolean, default: Boolean) = synchronized(gate) {
         check(!closed) { "插件已停用" }
@@ -147,6 +148,7 @@ internal class AmllPreferences : AutoCloseable {
         automaticCantoneseRuby = c.get("automatic_cantonese_ruby", false),
         automaticKoreanRuby = c.get("automatic_korean_ruby", false),
         automaticVocalRoles = c.get("automatic_vocal_roles", false),
+        rebuildPlayerPage = c.get("rebuild_player_page", false),
         coloredLyrics = c.get("colored_lyrics", false),
         typography = LyricTypography.fromPreferences(c.get("font_weight", LyricFontWeight.DEFAULT.value), c.get("font_size", "auto")),
     )

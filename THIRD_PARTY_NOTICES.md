@@ -15,6 +15,8 @@
 | 底栏布局与交互 | [BottomLine](https://github.com/amll-dev/applemusic-like-lyrics/blob/ca0f41d67882d936c0365ffd99c16841ea2fa39d/packages/core/src/lyric-player/dom/bottom-line.ts)、[Focus](https://github.com/amll-dev/applemusic-like-lyrics/blob/ca0f41d67882d936c0365ffd99c16841ea2fa39d/packages/core/src/lyric-player/base/focus.ts) |
 | Ruby 注音布局与动画 | [LyricLine](https://github.com/amll-dev/applemusic-like-lyrics/blob/5fee356362353dbb24ce9bea3a62536478040de7/packages/core/src/lyric-player/dom/lyric-line.ts)、[MaskAnimator](https://github.com/amll-dev/applemusic-like-lyrics/blob/5fee356362353dbb24ce9bea3a62536478040de7/packages/core/src/lyric-player/dom/animation/mask/animator-web.ts) |
 
+实验性播放页移植 [AMLL Player](https://github.com/amll-dev/amll-player/tree/90c1b909b7a6b0ca7b7f468c343868fbfd026883) 使用的 `react-full` 排版与控件样式，以原生 Compose 实现。来源为 AMLL 修订版 [`832bad5`](https://github.com/amll-dev/applemusic-like-lyrics/tree/832bad5f16ec2a7f96d06707ef927c9a4d3713d3/packages/react-full/src)：[横向／纵向布局](https://github.com/amll-dev/applemusic-like-lyrics/tree/832bad5f16ec2a7f96d06707ef927c9a4d3713d3/packages/react-full/src/layout)、`Cover`、`MusicInfo`、`MediaButton`、`BouncingSlider`、`VolumeControlSlider` 和 `PrebuiltLyricPlayer`。`src/main/resources/player/` 中的播放、音量、循环、随机、菜单及歌词 SVG 图标直接取自同一修订版的对应组件。上游由 SteveXMH 及 AMLL 贡献者维护，采用 AGPL-3.0-only。
+
 ## 色彩与发光
 
 [Oklab](https://bottosson.github.io/posts/oklab/) 的 sRGB 转换矩阵移植自 Björn Ottosson 发布的 2021-01-25 版本，用于封面取色与歌词、光晕配色，采用 MIT 许可证，Copyright (c) 2020 Björn Ottosson。许可证见 `licenses/Oklab-MIT.txt`。
