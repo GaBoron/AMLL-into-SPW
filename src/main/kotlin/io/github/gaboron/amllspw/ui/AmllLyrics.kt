@@ -28,7 +28,7 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
     onPlaying: () -> Boolean? = { null }, onSeekGeneration: () -> Long = { 0 },
     bottomContent: LyricFooterContent? = null, onPlaybackRate: () -> Float? = { null },
     onPlaybackSample: (() -> PlaybackClock.Sample)? = null,
-    alignPosition: Float = .35f, alignAnchor: Float = .35f) {
+    alignPosition: Float = .35f, alignAnchor: Float = .35f, foregroundColor: Color? = null) {
     val measurer = rememberTextMeasurer(cacheSize = 1_024)
     val painter = remember(measurer) { LyricLinePainter(measurer) }
     DisposableEffect(painter) { onDispose { painter.close() } }
@@ -60,7 +60,7 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
     }
     val cache = remember(presentation.document, density, showSecondary, options.typography, options.translationLanguage) { LayoutCache() }
     val contentTransition = remember(presentation.trackKey) { LyricContentTransition(options) }
-    val lyricColor = if (options.coloredLyrics) Color(presentation.lyricColor) else Color.White
+    val lyricColor = if (options.coloredLyrics) foregroundColor ?: Color(presentation.lyricColor) else Color.White
     val glowColor = if (options.coloredLyrics) Color(presentation.lyricGlowColor) else Color.White
     val scroll = rememberScrollableState { delta -> viewport.scroll(delta); delta }
     val hovering = pointer.position?.let { point -> viewport.hits.any { it.bounds.contains(point) } } == true

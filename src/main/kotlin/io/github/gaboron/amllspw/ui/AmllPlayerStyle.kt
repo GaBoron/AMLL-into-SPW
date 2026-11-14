@@ -32,7 +32,7 @@ internal data class AmllPlayerStyle(val width: Float, val height: Float,
     val lyricTop = smallHeaderTop + smallCover + 2f
     val verticalControlsHeight = maxOf(menuSize, infoTextHeight ?: infoSize * 2.5f) +
         24f + (timeTextHeight ?: timeSize * 1.25f) + (if (height > 768f) 4f else 0f) +
-        ceil(height * .1f) + bottomRow + 24f
+        ceil(height * .1f) + 24f
     val mediaScale = when {
         width <= 480f -> .5f
         height <= 512f -> 1f

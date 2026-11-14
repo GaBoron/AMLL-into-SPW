@@ -14,6 +14,7 @@ internal data class LyricsPresentation(
     val album: String = "",
     val durationMs: Long = 0,
     val artwork: ImageBitmap? = null,
+    val artworkLoading: Boolean = false,
     val externalPlayback: Boolean = false,
     val transportAvailable: Boolean = true,
     val document: LyricDocument = LyricDocument.EMPTY,

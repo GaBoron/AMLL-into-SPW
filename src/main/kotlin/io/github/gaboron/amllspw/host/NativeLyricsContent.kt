@@ -19,7 +19,7 @@ internal fun NativeLyricsContent(runtime: AmllRuntime, modifier: Modifier, showS
         options.copy(typography = options.typography.copy(fontSizeSp = framing.fontSize)) else options
     // The surrounding page owns the backdrop; this surface only draws the lyrics column.
     LyricsContextMenu(runtime, menu, presentation, options, modifier) {
-        LyricsScene(presentation, sceneOptions, Modifier.fillMaxSize(), runtime::nextPoem) { scene ->
+        LyricsScene(presentation, sceneOptions, Modifier.fillMaxSize(), runtime::nextPoem, framing.color) { scene ->
             // A departing track keeps its last playhead instead of jumping to zero during the fade.
             val lastPlayback = remember(scene.trackKey) { arrayOf(PlaybackClock.Sample(0L, null, 0L, null)) }
             val readPlayback = {
@@ -30,7 +30,8 @@ internal fun NativeLyricsContent(runtime: AmllRuntime, modifier: Modifier, showS
             }
             NativeLyricsSurface(scene, sceneOptions.copy(background = false), Modifier.fillMaxSize(),
                 { readPlayback().positionMs }, { runtime.seekTo(scene.trackKey, it) }, showSecondary,
-                onPlaybackSample = readPlayback, alignPosition = framing.position, alignAnchor = framing.anchor)
+                onPlaybackSample = readPlayback, alignPosition = framing.position, alignAnchor = framing.anchor,
+                foregroundColor = framing.color)
         }
     }
 }

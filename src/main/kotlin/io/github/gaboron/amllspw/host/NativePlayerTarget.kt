@@ -10,6 +10,7 @@ internal data class NativePlayerTarget(
     val page: Member,
     val caller: String,
     val controls: Map<String, Member>,
+    val popups: Map<String, Popup>,
     val chrome: List<Chrome>,
     val glassEnabled: Member,
     val sheetLocal: Member,
@@ -21,6 +22,7 @@ internal data class NativePlayerTarget(
     }
     enum class ChromeKind { COVER, MINI_PLAYER }
     data class Chrome(val member: Member, val caller: String, val kind: ChromeKind)
+    data class Popup(val content: Member, val stateOwner: String, val isOpen: Member, val open: Member)
     private data class Call(val target: Member, val opcode: Int, val defaultMask: Int?)
     private data class Body(val member: Member, val access: Int, val markers: List<String>, val calls: List<Call>)
 
@@ -41,6 +43,10 @@ internal data class NativePlayerTarget(
             "mode" to "com.xuncorp.voxzen.ui.player.mini.PlatformPlaybackModeControl (",
             "queue" to "com.xuncorp.voxzen.ui.player.mini.PlatformPlaybackQueueControl (",
         )
+        private val popupMarkers = mapOf(
+            "more" to "com.xuncorp.voxzen.ui.player.popup.PlayerMoreMenuFlyout (PlayerMoreMenuFlyout.kt:",
+            "queue" to "com.xuncorp.voxzen.ui.player.queue.PlaybackQueuePopup (PlaybackQueuePopup.kt:",
+        )
 
         fun discover(host: File = NativeLyricsTarget.hostArchive(WorkshopApi::class.java)): NativePlayerTarget =
             JarFile(host).use { jar ->
@@ -51,7 +57,7 @@ internal data class NativePlayerTarget(
                     val bytes = jar.getInputStream(entry).use { it.readBytes() }
                     val pool = String(bytes, Charsets.ISO_8859_1)
                     if (listOf(PAGE, SHEET, THEME, SURFACE, GLASS, COVER, MINI).any { it in pool } ||
-                        controlMarkers.values.any { it in pool }) bodies += read(bytes)
+                        controlMarkers.values.any { it in pool } || popupMarkers.values.any { it in pool }) bodies += read(bytes)
                 }
                 val page = bodies.filter { body -> body.markers.any { it.startsWith(PAGE) } }.singleOrNull()
                     ?: error("无法唯一确认播放页面入口")
@@ -83,6 +89,29 @@ internal data class NativePlayerTarget(
                     bodies.singleOrNull { body -> body.markers.any { it.startsWith(marker) } &&
                         body.access and Opcodes.ACC_STATIC != 0 && body.member.descriptor == "(J${COMPOSER}I)V"
                     }?.let { role to it.member }
+                }.toMap()
+                val popups = popupMarkers.mapNotNull { (role, marker) ->
+                    runCatching {
+                        val content = bodies.marked(marker)
+                        val popupArgs = Type.getArgumentTypes(content.member.descriptor)
+                        require(content.access and Opcodes.ACC_STATIC != 0 && popupArgs.size == 3 &&
+                            popupArgs[0].sort == Type.OBJECT && popupArgs[1].descriptor == COMPOSER &&
+                            popupArgs[2] == Type.INT_TYPE && Type.getReturnType(content.member.descriptor) == Type.VOID_TYPE)
+                        val stateOwner = popupArgs[0].internalName
+                        val entry = requireNotNull(jar.getJarEntry("$stateOwner.class"))
+                        val stateBodies = jar.getInputStream(entry).use { read(it.readBytes()) }
+                        val isOpen = stateBodies.single { it.member.descriptor == "()Z" && it.access and Opcodes.ACC_PUBLIC != 0 }
+                        val open = stateBodies.single { body -> body.member.descriptor == "()V" &&
+                            body.access and Opcodes.ACC_PUBLIC != 0 && body.calls.any { call ->
+                                call.target.owner == stateOwner && call.target.descriptor == "(Z)V" && call.defaultMask == 1
+                            }
+                        }
+                        // Invoke the original flyout, including its normal builder hooked by SPW Lyrics.
+                        if (role == "more") require(bodies.any { body -> body.member.owner == content.member.owner &&
+                            body.calls.any { it.target.owner == "com/xuncorp/voxzen/service/PlaybackController" &&
+                                it.target.name == "releaseAudioEngine" } })
+                        role to Popup(content.member, stateOwner, isOpen.member, open.member)
+                    }.onFailure { System.err.println("AMLL: 原生播放器 $role 菜单不可用：${it.message}") }.getOrNull()
                 }.toMap()
                 val surface = bodies.marked(SURFACE)
                 require(surface.member.owner == caller.member.owner) { "播放页面与主界面不属于同一容器" }
@@ -149,7 +178,7 @@ internal data class NativePlayerTarget(
                     it.target.owner == SHEET_STATE && it.target.descriptor == "()Z" }
                     .map { it.target }.distinct().singleOrNull() ?: error("无法唯一确认播放页展开状态")
                 require(mini.calls.any { it.target == expanded && it.opcode == Opcodes.INVOKEVIRTUAL }) { "迷你播放条展开状态已改变" }
-                NativePlayerTarget(theme.member, page.member.owner, controls, listOf(
+                NativePlayerTarget(theme.member, page.member.owner, controls, popups, listOf(
                     Chrome(cover.member, surface.member.owner, ChromeKind.COVER),
                     Chrome(theme.member, mini.member.owner, ChromeKind.MINI_PLAYER),
                 ), glassEnabled, local, expanded)

@@ -240,7 +240,7 @@ internal class AmllRuntime : AutoCloseable {
         val previous = mutablePresentation.value
         mutablePresentation.value = LyricsPresentation(trackKey = next,
             title = media.title, artist = media.artist, album = media.album, durationMs = media.duration.coerceAtLeast(0),
-            artwork = colors?.artwork, externalPlayback = externalTrack != null,
+            artwork = colors?.artwork, artworkLoading = !ready, externalPlayback = externalTrack != null,
             transportAvailable = externalTrack?.let(external::supportsTransport) ?: true,
             palette = colors?.palette ?: previous.palette,
             lyricColor = colors?.lyric ?: if (ready) 0xffffffff.toInt() else previous.lyricColor, loading = true,
@@ -261,7 +261,7 @@ internal class AmllRuntime : AutoCloseable {
             (externalTrack?.artworkKey ?: media.id) == artworkKey &&
             currentIdentity()?.matches(identityFor(media)) == true)
             mutablePresentation.value = current.copy(palette = colors?.palette ?: current.palette,
-                artwork = colors?.artwork,
+                artwork = colors?.artwork, artworkLoading = false,
                 lyricColor = colors?.lyric ?: 0xffffffff.toInt(),
                 lyricGlowColor = colors?.glow ?: 0xffffffff.toInt())
     }

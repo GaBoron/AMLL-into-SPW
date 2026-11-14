@@ -23,12 +23,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.gaboron.amllspw.timeline.PlaybackClock
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 
 @Composable
 internal fun PlayerControls(presentation: LyricsPresentation, style: AmllPlayerStyle, options: RenderOptions,
     modifier: Modifier, onPlayback: () -> PlaybackClock.Sample, onSeek: (Long) -> Unit,
     onTransport: (String) -> Unit, readVolume: () -> Float?, onVolume: (Float) -> Unit,
-    readMode: () -> String?, onMode: (String) -> Unit, bottomControls: @Composable () -> Unit = {},
+    readMode: () -> String?, onMode: (String) -> Unit, queue: @Composable (Float, Float) -> Unit = { _, _ -> },
     info: @Composable () -> Unit) {
     val readPlayback by rememberUpdatedState(onPlayback)
     val volumeReader by rememberUpdatedState(readVolume)
@@ -36,34 +37,45 @@ internal fun PlayerControls(presentation: LyricsPresentation, style: AmllPlayerS
     var playback by remember(presentation.trackKey) { mutableStateOf(readPlayback()) }
     var volume by remember(presentation.trackKey) { mutableStateOf(volumeReader()) }
     var mode by remember(presentation.trackKey) { mutableStateOf(modeReader()) }
-    var dragging by remember(presentation.trackKey) { mutableStateOf<Float?>(null) }
-    var volumeDrag by remember(presentation.trackKey) { mutableStateOf<Float?>(null) }
+    var pendingMode by remember(presentation.trackKey) { mutableStateOf<Pair<String, Long>?>(null) }
+    val duration = presentation.durationMs.coerceAtLeast(0)
+    val seekValue = remember(presentation.trackKey, duration) { PlayerValueHandoff(if (duration > 0) 300f / duration else 0f) }
+    val volumeValue = remember(presentation.trackKey) { PlayerValueHandoff(.01f) }
     var remaining by remember { mutableStateOf(true) }
-    LaunchedEffect(presentation.trackKey) {
+    LaunchedEffect(presentation.trackKey, duration) {
         while (true) {
             playback = readPlayback()
             volume = volumeReader()
-            mode = modeReader()
+            val reportedMode = modeReader()
+            if (pendingMode?.let { it.first == reportedMode || System.nanoTime() >= it.second } == true) pendingMode = null
+            mode = pendingMode?.first ?: reportedMode
+            seekValue.sample(if (duration > 0) (playback.positionMs.toDouble() / duration).toFloat().coerceIn(0f, 1f) else 0f)
+            volume?.let { volumeValue.sample(it) }
             delay(100)
         }
     }
-    val duration = presentation.durationMs.coerceAtLeast(0)
-    val progress = dragging ?: if (duration > 0) (playback.positionMs.toDouble() / duration).toFloat().coerceIn(0f, 1f) else 0f
+    val sourceProgress = if (duration > 0) (playback.positionMs.toDouble() / duration).toFloat().coerceIn(0f, 1f) else 0f
+    val progress = seekValue.value(sourceProgress)
     val enabled = presentation.trackKey.isNotBlank()
     val transportEnabled = enabled && presentation.transportAvailable
     BoxWithConstraints(modifier) {
-        val buttonSize = if (style.vertical) (style.height * .1f).dp else maxWidth * .18f
+        val buttonSize = minOf(maxWidth.value / 5f, if (style.vertical) style.height * .1f else maxWidth.value * .18f).dp
+        val sideIconSize = (buttonSize.value * .66f).coerceIn(32f, 56f)
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
             info()
             Column {
                 key(presentation.trackKey) {
                     PlayerSlider(progress, enabled && duration > 0, "播放进度", options.reducedMotion,
                         gestureKey = presentation.trackKey,
-                        onPreview = { dragging = it }, onCommit = { onSeek((it.toDouble() * duration).toLong().coerceIn(0, duration)) })
+                        formatValue = { playerTime((it.toDouble() * duration).toLong()) },
+                        onPreview = { seekValue.preview = it }, onCommit = {
+                            seekValue.submit(it, sourceProgress)
+                            onSeek((it.toDouble() * duration).toLong().coerceIn(0, duration))
+                        })
                 }
                 Row(Modifier.fillMaxWidth().padding(top = if (style.height > 768) 4.dp else 0.dp),
                     horizontalArrangement = Arrangement.SpaceBetween) {
-                    TimeLabel(playerTime(if (dragging != null) (progress.toDouble() * duration).toLong() else playback.positionMs), style)
+                    TimeLabel(playerTime((progress.toDouble() * duration).toLong()), style)
                     TimeLabel(if (duration <= 0) "--:--" else if (remaining)
                         "−${playerTime((duration - progress.toDouble() * duration).toLong())}" else playerTime(duration), style,
                         Modifier.clickable { remaining = !remaining })
@@ -71,9 +83,13 @@ internal fun PlayerControls(presentation: LyricsPresentation, style: AmllPlayerS
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically) {
-                if (!style.vertical) PlayerMediaButton("随机播放", if (mode == "Random") "shuffle-active" else "shuffle",
-                    buttonSize.value, 1.3f * style.em, mode != null, options.reducedMotion) {
-                    onMode(if (mode == "Random") "CircleEnd" else "Random")
+                PlayerMediaButton("播放模式：${playerModeLabel(mode)}", when (mode) {
+                    "Random" -> "shuffle"; "Circle" -> "repeat"; "RepeatOne" -> "repeat-one-active"; else -> "sequence"
+                }, buttonSize.value, sideIconSize, mode != null, options.reducedMotion) {
+                    val next = when (mode) { "CircleEnd" -> "Circle"; "Circle" -> "RepeatOne"; "RepeatOne" -> "Random"; else -> "CircleEnd" }
+                    mode = next
+                    pendingMode = next to (System.nanoTime() + 2_500_000_000L)
+                    onMode(next)
                 }
                 PlayerMediaButton("上一首", "icon_rewind", buttonSize.value,
                     if (style.vertical) 32f * (if (style.width <= 480) 2f else 2.5f) else 32f * style.mediaScale,
@@ -85,19 +101,18 @@ internal fun PlayerControls(presentation: LyricsPresentation, style: AmllPlayerS
                 PlayerMediaButton("下一首", "icon_forward", buttonSize.value,
                     if (style.vertical) 32f * (if (style.width <= 480) 2f else 2.5f) else 32f * style.mediaScale,
                     transportEnabled, options.reducedMotion) { onTransport("next") }
-                if (!style.vertical) PlayerMediaButton("循环播放", when(mode) {
-                    "Circle" -> "repeat-active"; "RepeatOne" -> "repeat-one-active"; else -> "repeat"
-                }, buttonSize.value, 1.3f * style.em, mode != null, options.reducedMotion) {
-                    onMode(when(mode) { "CircleEnd" -> "Circle"; "Circle" -> "RepeatOne"; else -> "CircleEnd" })
-                }
+                queue(buttonSize.value, sideIconSize)
             }
-            if (style.vertical) bottomControls()
             if (volume != null) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 PlayerIcon("icon_speaker", null, Modifier.size(24.dp), .5f)
                 key(presentation.trackKey) {
-                    PlayerSlider(volumeDrag ?: volume!!, enabled, "音量", options.reducedMotion,
+                    PlayerSlider(volumeValue.value(volume!!), enabled, "音量", options.reducedMotion,
                         Modifier.weight(1f), gestureKey = presentation.trackKey,
-                        onPreview = { volumeDrag = it }, onCommit = onVolume)
+                        formatValue = { "${(it * 100).roundToInt()}%" },
+                        onPreview = { volumeValue.preview = it }, onCommit = {
+                            volumeValue.submit(it, volume!!)
+                            onVolume(it)
+                        })
                 }
                 PlayerIcon("icon_speaker_3", null, Modifier.size(24.dp), .5f)
             }
@@ -107,11 +122,15 @@ internal fun PlayerControls(presentation: LyricsPresentation, style: AmllPlayerS
 
 @Composable
 private fun TimeLabel(value: String, style: AmllPlayerStyle, modifier: Modifier = Modifier) = BasicText(value, modifier,
-    style = playerTimeStyle(style.timeSize))
+    style = playerTimeStyle(style.timeSize, LocalPlayerColor.current))
 
-internal fun playerTimeStyle(size: Float) = TextStyle(
-    color = Color.White.copy(alpha = .5f), fontSize = size.sp, lineHeight = (size * 1.25f).sp,
+internal fun playerTimeStyle(size: Float, color: Color = Color.White) = TextStyle(
+    color = color.copy(alpha = .5f), fontSize = size.sp, lineHeight = (size * 1.25f).sp,
 )
+
+private fun playerModeLabel(mode: String?) = when (mode) {
+    "CircleEnd" -> "顺序播放"; "Circle" -> "列表循环"; "RepeatOne" -> "单曲循环"; "Random" -> "随机播放"; else -> "不可用"
+}
 
 internal fun playerTime(milliseconds: Long): String {
     val seconds = milliseconds.coerceAtLeast(0) / 1000
@@ -126,8 +145,9 @@ internal fun PlayerMediaButton(label: String, icon: String, side: Float, iconSiz
     val hovered by interactions.collectIsHoveredAsState()
     val pressed by interactions.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) .85f else 1f, if (reducedMotion) snap() else spring(.45f, 300f))
+    val color = LocalPlayerColor.current
     Box(Modifier.size(side.dp).clip(CircleShape)
-        .background(if (hovered || pressed) Color.White.copy(alpha = .133f) else Color.Transparent)
+        .background(if (hovered || pressed) color.copy(alpha = .133f) else Color.Transparent)
         .hoverable(interactions, enabled).clickable(interactionSource = interactions, indication = null,
             enabled = enabled, role = Role.Button, onClickLabel = label, onClick = onClick), contentAlignment = Alignment.Center) {
         PlayerIcon(icon, label, Modifier.size(iconSize.dp).graphicsLayer { scaleX = scale; scaleY = scale }, if (enabled) 1f else .25f)
