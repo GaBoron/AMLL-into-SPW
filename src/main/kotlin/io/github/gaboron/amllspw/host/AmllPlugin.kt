@@ -47,6 +47,10 @@ class AmllPlugin(context: PluginContext) : SpwPlugin(context) {
                     throw it
                 }
                 System.err.println("AMLL: 播放页重构入口不可用，保留原版页面：${it.message}")
+                it.printStackTrace(System.err)
+                if (created.preferences.options.value.rebuildPlayerPage) runCatching {
+                    WorkshopApi.ui.toast("播放页面重构未启用：${it.message ?: it.javaClass.simpleName}", WorkshopApi.Ui.ToastType.Warning)
+                }
             }
             active = created
             current = created

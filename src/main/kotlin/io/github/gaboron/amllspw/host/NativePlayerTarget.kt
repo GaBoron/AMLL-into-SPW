@@ -11,7 +11,7 @@ internal data class NativePlayerTarget(
     val caller: String,
     val controls: Map<String, Member>,
     val chrome: List<Chrome>,
-    val glass: Member,
+    val glassEnabled: Member,
     val sheetLocal: Member,
     val sheetExpanded: Member,
 ) {
@@ -101,6 +101,21 @@ internal data class NativePlayerTarget(
                 require(glassSites.size == 1 && glassSites.single().second.opcode == Opcodes.INVOKESTATIC) {
                     "播放页面玻璃容器调用不唯一"
                 }
+                // The material-mode getter supplies the glass wrapper's enable flag and is
+                // shared by the sheet background. It is an ordinary, non-composable getter.
+                val glassEnabled = glassSites.single().first.calls.takeWhile { it.target != glass.member }
+                    .filter { it.opcode == Opcodes.INVOKEVIRTUAL && it.target.descriptor == "()Z" }
+                    .map { it.target }.distinct().singleOrNull() ?: error("无法唯一确认播放页玻璃开关")
+                require(surface.calls.any { it.target == glassEnabled && it.opcode == Opcodes.INVOKEVIRTUAL } &&
+                    Type.getArgumentTypes(glassSites.single().first.member.descriptor).any {
+                        it.descriptor == "L${glassEnabled.owner};"
+                    }) { "播放页玻璃开关来源已改变" }
+                val modeEntry = jar.getJarEntry(glassEnabled.owner + ".class") ?: error("播放页玻璃开关类型不可读取")
+                val mode = jar.getInputStream(modeEntry).use { read(it.readBytes()) }
+                    .singleOrNull { it.member == glassEnabled } ?: error("播放页玻璃开关签名已改变")
+                require(mode.access and (Opcodes.ACC_STATIC or Opcodes.ACC_ABSTRACT or Opcodes.ACC_NATIVE) == 0) {
+                    "播放页玻璃开关不是实例方法"
+                }
                 val coverCalls = glassSites.single().first.calls.filter { it.target == cover.member }
                 require(coverCalls.size == 1 && coverCalls.single().opcode == Opcodes.INVOKESTATIC &&
                     coverCalls.single().defaultMask == 0) { "浮动封面调用约定已改变" }
@@ -137,7 +152,7 @@ internal data class NativePlayerTarget(
                 NativePlayerTarget(theme.member, page.member.owner, controls, listOf(
                     Chrome(cover.member, surface.member.owner, ChromeKind.COVER),
                     Chrome(theme.member, mini.member.owner, ChromeKind.MINI_PLAYER),
-                ), glass.member, local, expanded)
+                ), glassEnabled, local, expanded)
             }
 
         private fun List<Body>.marked(marker: String): Body =
