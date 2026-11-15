@@ -54,12 +54,14 @@ internal class PlayerSpectrumMotion(val bands: Int = 48) {
 
     private fun follow(band: Int, target: Float, seconds: Float) {
         val envelope = envelopes[band]
-        // One exponential envelope, rather than a second smoother on top. The
-        // longer gap release lets pause/buffering decay without resetting height.
-        val response = when {
-            target > envelope.value -> .012f
-            !hasData -> .32f
-            else -> .11f - .055f * band / (bands - 1)
+        // Sub-pixel fluctuations follow slowly; larger musical changes retain a
+        // quick attack and frequency-dependent release. Blend continuously rather
+        // than freezing a dead zone, so gradual changes still reach their target.
+        val response = if (!hasData) .32f else {
+            val change = ((abs(target - envelope.value) - .015f) / .105f).coerceIn(0f, 1f)
+            val urgency = change * change * (3f - 2f * change)
+            val quick = if (target > envelope.value) .012f else .11f - .055f * band / (bands - 1)
+            .14f + (quick - .14f) * urgency
         }
         envelope.follow(target, seconds, response)
     }
