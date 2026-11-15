@@ -38,6 +38,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import kotlin.math.tanh
 
+internal const val PLAYER_SPECTRUM_HEIGHT_DP = 116f
+
 /** Eight-pixel resting rail, twenty-pixel hover rail, no separate thumb, and a soft twelve-pixel edge bounce. */
 @Composable
 internal fun PlayerSlider(value: Float, enabled: Boolean, label: String, reducedMotion: Boolean,
@@ -58,7 +60,8 @@ internal fun PlayerSlider(value: Float, enabled: Boolean, label: String, reduced
     val density = LocalDensity.current
     var width by remember { mutableIntStateOf(0) }
     var bubbleWidth by remember { mutableIntStateOf(0) }
-    Box(modifier.fillMaxWidth().height(24.dp).zIndex(if (dragging) 1f else 0f).onSizeChanged { width = it.width }) {
+    Box(modifier.fillMaxWidth().height(if (spectrum != null) PLAYER_SPECTRUM_HEIGHT_DP.dp else 24.dp)
+        .zIndex(if (dragging) 1f else 0f).onSizeChanged { width = it.width }) {
         Canvas(Modifier.fillMaxSize().graphicsLayer { translationX = bounce.dp.toPx() }
             .hoverable(interactions, enabled).pointerInput(enabled, gestureKey) {
                 if (!enabled) return@pointerInput
@@ -106,12 +109,13 @@ internal fun PlayerSlider(value: Float, enabled: Boolean, label: String, reduced
             }) {
             if (spectrum != null) {
                 val step = size.width / spectrum.bands
-                val barWidth = (step * .55f).coerceAtMost(4.dp.toPx())
+                val barWidth = (step * .62f).coerceAtMost(5.dp.toPx())
                 for (band in 0 until spectrum.bands) {
                     val level = spectrum.level(band)
-                    val barHeight = (2f + level * (6f + height * .5f)).dp.toPx()
+                    val peakHeight = (30f + height * .2f) * 3.2f
+                    val barHeight = (3f + level * (peakHeight - 3f)).dp.toPx()
                     val lit = (value * spectrum.bands - band).coerceIn(0f, 1f)
-                    drawRoundRect(color.copy(alpha = if (enabled) .18f + .6f * lit else .1f),
+                    drawRoundRect(color.copy(alpha = if (enabled) .30f + .62f * lit else .16f),
                         topLeft = androidx.compose.ui.geometry.Offset(step * (band + .5f) - barWidth / 2f, (size.height - barHeight) / 2f),
                         size = Size(barWidth, barHeight), cornerRadius = CornerRadius(barWidth / 2f))
                 }

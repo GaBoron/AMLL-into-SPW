@@ -32,7 +32,7 @@ internal class PlayerSpectrumMotion(val bands: Int = 48) {
             }
             val rms = sqrt(energy / maxOf(1, minOf(end, count) - start))
             // A fixed dB window preserves musical dynamics instead of normalizing every frame to full height.
-            val level = ((20.0 * log10(rms.coerceAtLeast(1e-8)) + 72.0) / 60.0).toFloat().coerceIn(0f, 1f)
+            val level = ((20.0 * log10(rms.coerceAtLeast(1e-8)) + 78.0) / 54.0).toFloat().coerceIn(0f, 1f)
             if (abs(level - targets[band]) > .0001f) changed = true
             targets[band] = level
         }

@@ -18,6 +18,10 @@
 
 实验性播放页移植 [AMLL Player](https://github.com/amll-dev/amll-player/tree/90c1b909b7a6b0ca7b7f468c343868fbfd026883) 使用的 `react-full` 排版与控件样式，以原生 Compose 实现。来源为 AMLL 修订版 [`832bad5`](https://github.com/amll-dev/applemusic-like-lyrics/tree/832bad5f16ec2a7f96d06707ef927c9a4d3713d3/packages/react-full/src)：[横向／纵向布局](https://github.com/amll-dev/applemusic-like-lyrics/tree/832bad5f16ec2a7f96d06707ef927c9a4d3713d3/packages/react-full/src/layout)、`Cover`、`MusicInfo`、`MediaButton`、`BouncingSlider`、`VolumeControlSlider` 和 `PrebuiltLyricPlayer`。`src/main/resources/player/` 中的播放、音量、循环、随机、菜单及歌词 SVG 图标直接取自同一修订版的对应组件。上游由 SteveXMH 及 AMLL 贡献者维护，采用 AGPL-3.0-only。
 
+## 菜单材质与动效
+
+更多、播放列表与歌词右键菜单的材质组合、留白、轮廓变形、内容过渡及开合弹簧移植或适配自 FlClash 使用的 [Prism UI](https://github.com/chen08209/prism_ui/tree/63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185)：[`liquid_glass.dart`](https://github.com/chen08209/prism_ui/blob/63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185/lib/liquid_glass.dart)、[`popup.dart`](https://github.com/chen08209/prism_ui/blob/63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185/lib/popup.dart)。上游由 chen08209 维护，采用 GPL-3.0，许可证见 `licenses/Prism-UI-GPL-3.0.txt`。玻璃渲染使用下列 Backdrop 依赖提供的 Compose 实现。
+
 ## 色彩与发光
 
 [Oklab](https://bottosson.github.io/posts/oklab/) 的 sRGB 转换矩阵移植自 Björn Ottosson 发布的 2021-01-25 版本，用于封面取色与歌词、光晕配色，采用 MIT 许可证，Copyright (c) 2020 Björn Ottosson。许可证见 `licenses/Oklab-MIT.txt`。

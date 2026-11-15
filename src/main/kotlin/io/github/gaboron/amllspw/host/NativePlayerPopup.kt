@@ -2,16 +2,12 @@
 package io.github.gaboron.amllspw.host
 
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.roundToIntRect
+import androidx.compose.ui.unit.dp
 import com.xuncorp.spw.workshop.api.WorkshopApi
 import com.xuncorp.spw.workshop.api.UnstableSpwWorkshopApi
 import com.xuncorp.spw.workshop.api.hook.HookHandle
@@ -38,6 +34,7 @@ internal class NativePlayerPopup(target: NativePlayerTarget.Popup, private val l
     private val shell = method(target.shell)
     private val shellCaller = target.shellCaller
     private val body = target.body?.let(::method)
+    private val glassMenu = body?.let(::NativeGlassMenu)
     private val invokeQueue = Function3::class.java.getMethod("invoke", Any::class.java, Any::class.java, Any::class.java)
     private val scope = target.scopeOwner?.let { owner ->
         val type = Class.forName(owner.replace('/', '.'), false, loader)
@@ -68,12 +65,8 @@ internal class NativePlayerPopup(target: NativePlayerTarget.Popup, private val l
 
     @Composable
     private fun Body(arguments: List<Any?>) {
-        if (body != null) {
-            // The native leading slot owns its acrylic surface. Replace it with a transparent content column.
-            val column: @Composable (@Composable () -> Unit) -> Unit = { items ->
-                Column(Modifier.width(IntrinsicSize.Max).verticalScroll(rememberScrollState())) { items() }
-            }
-            body.invoke(null, arguments[0], column, arguments[2], currentComposer, 0, 0)
+        if (glassMenu != null) {
+            glassMenu.Content(requireNotNull(arguments[2])) { (arguments[0] as Function0<*>).invoke() }
         } else {
             // ComposableLambda implements several FunctionN interfaces; Kotlin's arity cast rejects that shape.
             invokeQueue.invoke(arguments[4], requireNotNull(scope), currentComposer, 0)
@@ -83,7 +76,9 @@ internal class NativePlayerPopup(target: NativePlayerTarget.Popup, private val l
     @Composable
     fun Button(label: String, icon: String, side: Float, iconSize: Float, enabled: Boolean, reducedMotion: Boolean) {
         val state = remember { constructor.newInstance(false) }
-        val entry = remember { PlayerGlassPopupEntry(label) { dismiss.invoke(state) } }
+        val entry = remember { PlayerGlassPopupEntry(label) { dismiss.invoke(state) }.also {
+            it.width = if (body == null) 400.dp else 280.dp
+        } }
         val host = LocalPlayerGlassPopups.current
         val expanded = ready && isOpen.invoke(state) == true
         Box(Modifier.onGloballyPositioned { entry.anchor = it.boundsInWindow().roundToIntRect() }) {

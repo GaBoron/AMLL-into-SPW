@@ -2,17 +2,15 @@
 package io.github.gaboron.amllspw.host
 
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.Layout
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import com.xuncorp.spw.workshop.api.WorkshopApi
 import com.xuncorp.spw.workshop.api.hook.HookHandle
 import com.xuncorp.spw.workshop.api.UnstableSpwWorkshopApi
 import io.github.gaboron.amllspw.ui.PlayerPage
 import io.github.gaboron.amllspw.ui.PlayerMediaButton
+import io.github.gaboron.amllspw.ui.LocalPlayerGlassDark
 import java.lang.invoke.MethodType
 import java.lang.reflect.Method
 import java.lang.StackWalker
@@ -55,7 +53,7 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
     private var preferenceCollection: Job? = null
 
     /** Enable the page and its surrounding layers together, after every hook is installed. */
-    fun install(runtime: AmllRuntime, menu: NativeLyricsMenu?) {
+    fun install(runtime: AmllRuntime) {
         check(handles.isEmpty() && preferenceCollection == null)
         // The material getter reads snapshot state without entering a composition.
         // One owned collector keeps its setting synchronized with the page and native controls.
@@ -81,7 +79,7 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
         }
         handles += WorkshopApi.hookRegistrar.replaceComposable(target.page.owner.replace('/', '.'),
             target.page.name, target.caller.replace('/', '.'), target.parameters) { call ->
-            Content(runtime, call.arguments, menu)
+            Content(runtime, call.arguments)
         }
         ready = true
     }
@@ -145,23 +143,14 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
         val state = currentComposer.consume(sheetLocal)
         SideEffect { sheetState = state }
         val progress = reveal(state)
-        // Both layers follow the sheet's physical position, including reversals while dragging.
-        Layout(content = {
-            Box(propagateMinConstraints = true) {
-                original.invoke(null, *(arguments + currentComposer + flags).toTypedArray())
-            }
-        }, modifier = Modifier.graphicsLayer { alpha = 1f - progress }.then(
-            if (progress >= 1f) Modifier.clearAndSetSemantics {} else Modifier)) { children, constraints ->
-            val child = children.single().measure(constraints)
-            layout(child.width, child.height) {
-                // Keep native remembers warm without drawing or exposing invisible hit targets.
-                if (progress < 1f) child.place(0, 0)
-            }
-        }
+        // Emit the native nodes directly into their original parent. A wrapper Layout
+        // swallows the mini player's BoxScope alignment and moves its capsule to the top.
+        // Native chrome already follows the sheet's motion; restore it as closing starts.
+        if (progress < 1f) original.invoke(null, *(arguments + currentComposer + flags).toTypedArray())
     }
 
     @Composable
-    fun Content(runtime: AmllRuntime, arguments: List<Any?>, menu: NativeLyricsMenu?) {
+    fun Content(runtime: AmllRuntime, arguments: List<Any?>) {
         if (!hideNativeChrome(runtime)) {
             original.invoke(null, arguments[0], arguments[1], currentComposer, 0)
             return
@@ -169,12 +158,16 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
         val state = currentComposer.consume(sheetLocal)
         val progress = reveal(state)
         val expanded = sheetExpanded.invoke(state) == true
-        val content: @Composable () -> Unit = { RebuiltPage(runtime, menu, progress, expanded) }
+        val content: @Composable () -> Unit = {
+            CompositionLocalProvider(LocalPlayerGlassDark provides (arguments[0] as Boolean)) {
+                RebuiltPage(runtime, progress, expanded)
+            }
+        }
         original.invoke(null, arguments[0], content, currentComposer, 0)
     }
 
     @Composable
-    private fun RebuiltPage(runtime: AmllRuntime, menu: NativeLyricsMenu?, progress: Float, expanded: Boolean) {
+    private fun RebuiltPage(runtime: AmllRuntime, progress: Float, expanded: Boolean) {
         val options by runtime.preferences.options.collectAsState()
         val presentation by runtime.presentation.collectAsState()
         PlayerPage(presentation, options, Modifier.fillMaxSize().graphicsLayer { alpha = progress },
@@ -213,6 +206,6 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
                     presentation.trackKey.isNotBlank() && !presentation.externalPlayback, options.reducedMotion)
                 else PlayerMediaButton("播放列表", "queue", side, iconSize, enabled = false) {}
             },
-            lyrics = { NativeLyricsContent(runtime, Modifier.fillMaxSize(), true, menu) })
+            lyrics = { NativeLyricsContent(runtime, Modifier.fillMaxSize(), true) })
     }
 }

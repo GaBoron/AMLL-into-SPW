@@ -10,15 +10,14 @@ import io.github.gaboron.amllspw.timeline.PlaybackClock
 
 /** Host adapter only: the drawing layer receives values and callbacks, never Workshop API objects. */
 @Composable
-internal fun NativeLyricsContent(runtime: AmllRuntime, modifier: Modifier, showSecondary: Boolean,
-    menu: NativeLyricsMenu? = null) {
+internal fun NativeLyricsContent(runtime: AmllRuntime, modifier: Modifier, showSecondary: Boolean) {
     val presentation by runtime.presentation.collectAsState()
     val options by runtime.preferences.options.collectAsState()
     val framing = LocalPlayerLyricFraming.current
     val sceneOptions = if (options.typography.fontSizeSp == null && framing.fontSize != null)
         options.copy(typography = options.typography.copy(fontSizeSp = framing.fontSize)) else options
     // The surrounding page owns the backdrop; this surface only draws the lyrics column.
-    LyricsContextMenu(runtime, menu, presentation, options, modifier) {
+    LyricsContextMenu(runtime, presentation, options, modifier) {
         LyricsScene(presentation, sceneOptions, Modifier.fillMaxSize(), runtime::nextPoem, framing.color, framing.horizontalPaddingDp) { scene ->
             // A departing track keeps its last playhead instead of jumping to zero during the fade.
             val lastPlayback = remember(scene.trackKey) { arrayOf(PlaybackClock.Sample(0L, null, 0L, null)) }
