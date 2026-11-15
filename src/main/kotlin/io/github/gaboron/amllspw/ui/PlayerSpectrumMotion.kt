@@ -2,6 +2,8 @@ package io.github.gaboron.amllspw.ui
 
 import androidx.compose.runtime.*
 import io.github.gaboron.amllspw.timeline.SpringMotion
+import io.github.gaboron.amllspw.spectrum.SpectrumAnalyzer
+import io.github.gaboron.amllspw.spectrum.SpectrumFrame
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -10,59 +12,26 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.*
 
-/** Peak-led FFT bands retain their attack/hold/release envelopes across pauses, seeks and track changes. */
+/** Musical band envelopes preserve their motion across pauses, seeks and track changes. */
 @Stable
 internal class PlayerSpectrumMotion(val bands: Int = 48) {
     private val envelopes = Array(bands) { SpringMotion() }
-    private val targets = FloatArray(bands)
+    private val analyzer = SpectrumAnalyzer(bands)
+    private val targets get() = analyzer.levels
     private val heldPeaks = FloatArray(bands)
     private val holdRemaining = FloatArray(bands)
     private val signal = MutableStateFlow(0L)
     private var revision by mutableIntStateOf(0)
-    private var sourceBins = 0
-    private val edges = IntArray(bands + 1)
-    private val widthGains = DoubleArray(bands)
     private var hasData = false
 
-    fun accept(fft: FloatArray?) {
-        val count = fft?.size ?: 0
-        val available = count > bands
-        hasData = available
-        if (available && sourceBins != count) {
-            sourceBins = count
-            edges[0] = 1 // BASS's first FFT point is DC, not a bass band.
-            val logarithm = ln(count.toDouble())
-            for (edge in 1..bands) {
-                // Respect the native FFT resolution: every source bin belongs to one
-                // band, and the first few bass points are never copied to many bars.
-                edges[edge] = exp(logarithm * edge / bands).roundToInt()
-                    .coerceIn(edges[edge - 1] + 1, count - (bands - edge))
-                widthGains[edge - 1] = (edges[edge] - edges[edge - 1]).toDouble().pow(.12)
-            }
-        }
+    fun accept(frame: SpectrumFrame?, seconds: Float = 1f / 60f) {
+        hasData = frame != null && (frame.sampleRate == 0 || frame.sampleRate >= 8000) && frame.magnitudes.size >= 16
+        analyzer.accept(frame, seconds)
         for (band in targets.indices) {
-            var energy = 0.0
-            var peak = 0.0
-            if (available && fft != null) for (bin in edges[band] until edges[band + 1]) {
-                val value = fft[bin].takeIf { it.isFinite() && it > 0f }?.toDouble() ?: 0.0
-                energy += value * value
-                peak = max(peak, value)
-            }
-            val width = if (available) edges[band + 1] - edges[band] else 1
-            val rms = sqrt(energy / width)
-            // Keep note/transient peaks instead of raising every wide band by its
-            // total power. A small fixed width correction still reveals real treble.
-            val magnitude = (.75 * peak + .25 * rms) * if (available) widthGains[band] else 1.0
-            // Keep a fixed -96 dB floor and reserve the top for peaks near full scale.
-            val normalized = if (magnitude > 0.0) ((20.0 * log10(magnitude) + 96.0) / 96.0)
-                .coerceAtLeast(0.0) else 0.0
-            // Preserve contrast below 80% height; only the top has a soft ceiling.
-            val level = if (normalized <= .8) normalized.toFloat()
-                else (.8 + .2 * -expm1(-(normalized - .8) / .2)).toFloat()
-            targets[band] = level
+            val level = targets[band]
             if (level > .0001f && level >= heldPeaks[band]) {
                 heldPeaks[band] = level
-                holdRemaining[band] = .05f
+                holdRemaining[band] = .02f
             }
         }
         // Compare with the displayed envelope too: small cumulative input changes
@@ -87,7 +56,11 @@ internal class PlayerSpectrumMotion(val bands: Int = 48) {
         val envelope = envelopes[band]
         // One exponential envelope, rather than a second smoother on top. The
         // longer gap release lets pause/buffering decay without resetting height.
-        val response = if (target > envelope.value) .025f else if (hasData) .15f else .32f
+        val response = when {
+            target > envelope.value -> .012f
+            !hasData -> .32f
+            else -> .11f - .055f * band / (bands - 1)
+        }
         envelope.follow(target, seconds, response)
     }
 
@@ -119,14 +92,18 @@ internal class PlayerSpectrumMotion(val bands: Int = 48) {
 }
 
 @Composable
-internal fun rememberPlayerSpectrum(read: () -> FloatArray?): PlayerSpectrumMotion {
+internal fun rememberPlayerSpectrum(read: () -> SpectrumFrame?): PlayerSpectrumMotion {
     val reader by rememberUpdatedState(read)
     val motion = remember { PlayerSpectrumMotion() }
     LaunchedEffect(motion) {
         launch { motion.animate() }
+        var previous = System.nanoTime()
         while (true) {
-            motion.accept(withContext(Dispatchers.Default) { runCatching { reader() }.getOrNull() })
-            delay(33)
+            val frame = withContext(Dispatchers.Default) { runCatching { reader() }.getOrNull() }
+            val now = System.nanoTime()
+            motion.accept(frame, (now - previous) / 1_000_000_000f)
+            previous = now
+            delay(16)
         }
     }
     return motion

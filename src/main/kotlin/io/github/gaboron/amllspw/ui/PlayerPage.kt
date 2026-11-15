@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import io.github.gaboron.amllspw.timeline.PlaybackClock
+import io.github.gaboron.amllspw.spectrum.SpectrumFrame
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import kotlinx.coroutines.delay
@@ -37,7 +38,7 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
     queue: @Composable (Float, Float) -> Unit = { _, _ -> }, readVolume: () -> Float? = { null }, onVolume: (Float) -> Unit = {},
     readMode: () -> String? = { null }, onMode: (String) -> Unit = {},
     pageMenu: (@Composable (Float) -> Unit)? = null, pageExpanded: Boolean = true,
-    readSpectrum: () -> FloatArray? = { null }, lyrics: @Composable () -> Unit) {
+    readSpectrum: () -> SpectrumFrame? = { null }, lyrics: @Composable () -> Unit) {
     val spectrum = rememberPlayerSpectrum(readSpectrum)
     val glassPopups = remember { PlayerGlassPopups() }
     val backdrop = rememberLayerBackdrop()

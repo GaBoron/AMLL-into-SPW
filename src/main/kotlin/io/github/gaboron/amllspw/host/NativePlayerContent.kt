@@ -91,7 +91,7 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
         sheetState = null
         val old = handles.asReversed().toTypedArray()
         handles.clear()
-        closePluginResources(*old)
+        closePluginResources(*old, spectrum)
     }
 
     private fun rebuilding(runtime: AmllRuntime): Boolean = ready && runtime.isActive && rebuildPage
