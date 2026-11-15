@@ -30,17 +30,18 @@ internal fun PlayerControls(presentation: LyricsPresentation, style: AmllPlayerS
     modifier: Modifier, onPlayback: () -> PlaybackClock.Sample, onSeek: (Long) -> Unit,
     onTransport: (String) -> Unit, readVolume: () -> Float?, onVolume: (Float) -> Unit,
     readMode: () -> String?, onMode: (String) -> Unit, queue: @Composable (Float, Float) -> Unit = { _, _ -> },
+    spectrum: PlayerSpectrumMotion? = null,
     info: @Composable () -> Unit) {
     val readPlayback by rememberUpdatedState(onPlayback)
     val volumeReader by rememberUpdatedState(readVolume)
     val modeReader by rememberUpdatedState(readMode)
     var playback by remember(presentation.trackKey) { mutableStateOf(readPlayback()) }
-    var volume by remember(presentation.trackKey) { mutableStateOf(volumeReader()) }
+    var volume by remember { mutableStateOf(volumeReader()) }
     var mode by remember(presentation.trackKey) { mutableStateOf(modeReader()) }
     var pendingMode by remember(presentation.trackKey) { mutableStateOf<Pair<String, Long>?>(null) }
     val duration = presentation.durationMs.coerceAtLeast(0)
     val seekValue = remember(presentation.trackKey, duration) { PlayerValueHandoff(if (duration > 0) 300f / duration else 0f) }
-    val volumeValue = remember(presentation.trackKey) { PlayerValueHandoff(.01f) }
+    val volumeValue = remember { PlayerValueHandoff(.01f) }
     var remaining by remember { mutableStateOf(true) }
     LaunchedEffect(presentation.trackKey, duration) {
         while (true) {
@@ -108,9 +109,9 @@ internal fun PlayerControls(presentation: LyricsPresentation, style: AmllPlayerS
             }
             if (volume != null) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 PlayerIcon("icon_speaker", null, Modifier.size(24.dp), .5f)
-                key(presentation.trackKey) {
+                key("player-volume") {
                     PlayerSlider(volumeValue.value(volume!!), enabled, "音量", options.reducedMotion,
-                        Modifier.weight(1f), gestureKey = presentation.trackKey,
+                        Modifier.weight(1f), spectrum = spectrum,
                         formatValue = { "${(it * 100).roundToInt()}%" },
                         onPreview = { volumeValue.preview = it }, onCommit = {
                             volumeValue.submit(it, volume!!)

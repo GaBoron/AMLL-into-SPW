@@ -2,11 +2,29 @@
 package io.github.gaboron.amllspw.host
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.unit.roundToIntRect
+import com.xuncorp.spw.workshop.api.WorkshopApi
+import com.xuncorp.spw.workshop.api.UnstableSpwWorkshopApi
+import com.xuncorp.spw.workshop.api.hook.HookHandle
+import io.github.gaboron.amllspw.ui.LocalPlayerGlassPopups
+import io.github.gaboron.amllspw.ui.PlayerGlassPopupEntry
 import io.github.gaboron.amllspw.ui.PlayerMediaButton
 import java.lang.invoke.MethodType
+import java.lang.reflect.Proxy
 
-/** Renders the host's real flyouts, retaining items appended by other plugins. */
+private val LocalPlayerPopupEntry = staticCompositionLocalOf<PlayerGlassPopupEntry?> { null }
+
+/** Preserve native actions and plugin menu additions; route their content into the player's glass shell. */
+@OptIn(UnstableSpwWorkshopApi::class)
 internal class NativePlayerPopup(target: NativePlayerTarget.Popup, private val loader: ClassLoader) {
     private fun method(member: NativePlayerTarget.Member) = Class.forName(member.owner.replace('/', '.'), false, loader)
         .getDeclaredMethod(member.name, *MethodType.fromMethodDescriptorString(member.descriptor, loader).parameterArray())
@@ -14,15 +32,69 @@ internal class NativePlayerPopup(target: NativePlayerTarget.Popup, private val l
     private val constructor = Class.forName(target.stateOwner.replace('/', '.'), false, loader)
         .getConstructor(Boolean::class.javaPrimitiveType)
     private val open = method(target.open)
+    private val dismiss = method(target.dismiss)
     private val isOpen = method(target.isOpen)
     private val content = method(target.content)
+    private val shell = method(target.shell)
+    private val shellCaller = target.shellCaller
+    private val body = target.body?.let(::method)
+    private val invokeQueue = Function3::class.java.getMethod("invoke", Any::class.java, Any::class.java, Any::class.java)
+    private val scope = target.scopeOwner?.let { owner ->
+        val type = Class.forName(owner.replace('/', '.'), false, loader)
+        check(type.isInterface && type.declaredMethods.isEmpty())
+        Proxy.newProxyInstance(loader, arrayOf(type)) { _, _, _ -> null }
+    }
+    private var ready by mutableStateOf(false)
+
+    fun install(): HookHandle {
+        val handle = WorkshopApi.hookRegistrar.replaceComposable(shell.declaringClass.name, shell.name,
+            shellCaller.replace('/', '.'), shell.parameterTypes.takeWhile { it != Composer::class.java }.map { it.name }) { call ->
+            val entry = LocalPlayerPopupEntry.current
+            val arguments = call.arguments.toList()
+            if (entry == null) shell.invoke(null, *(arguments + currentComposer + listOf(0, 0)).toTypedArray())
+            else {
+                val draw: @Composable () -> Unit = { Body(arguments) }
+                SideEffect { entry.content = draw }
+            }
+        }
+        ready = true
+        return object : HookHandle {
+            override fun unhook() {
+                ready = false
+                handle.unhook()
+            }
+        }
+    }
+
+    @Composable
+    private fun Body(arguments: List<Any?>) {
+        if (body != null) {
+            // The native leading slot owns its acrylic surface. Replace it with a transparent content column.
+            val column: @Composable (@Composable () -> Unit) -> Unit = { items ->
+                Column(Modifier.width(IntrinsicSize.Max).verticalScroll(rememberScrollState())) { items() }
+            }
+            body.invoke(null, arguments[0], column, arguments[2], currentComposer, 0, 0)
+        } else {
+            // ComposableLambda implements several FunctionN interfaces; Kotlin's arity cast rejects that shape.
+            invokeQueue.invoke(arguments[4], requireNotNull(scope), currentComposer, 0)
+        }
+    }
 
     @Composable
     fun Button(label: String, icon: String, side: Float, iconSize: Float, enabled: Boolean, reducedMotion: Boolean) {
         val state = remember { constructor.newInstance(false) }
-        Box {
-            PlayerMediaButton(label, icon, side, iconSize, enabled, reducedMotion) { open.invoke(state) }
-            if (isOpen.invoke(state) == true) content.invoke(null, state, currentComposer, 0)
+        val entry = remember { PlayerGlassPopupEntry(label) { dismiss.invoke(state) } }
+        val host = LocalPlayerGlassPopups.current
+        val expanded = ready && isOpen.invoke(state) == true
+        Box(Modifier.onGloballyPositioned { entry.anchor = it.boundsInWindow().roundToIntRect() }) {
+            PlayerMediaButton(label, icon, side, iconSize, enabled && ready && host != null, reducedMotion) { open.invoke(state) }
+            if (expanded) CompositionLocalProvider(LocalPlayerPopupEntry provides entry) {
+                content.invoke(null, state, currentComposer, 0)
+            }
+            SideEffect {
+                entry.expanded = expanded
+                if (expanded) host?.show(entry)
+            }
         }
     }
 }

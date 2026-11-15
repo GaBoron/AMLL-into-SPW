@@ -31,9 +31,10 @@
 | [Jaudiotagger](https://bitbucket.org/ijabz/jaudiotagger) | LGPL-2.1-or-later | 音频标签读取 |
 | [ASM](https://asm.ow2.io/) | BSD-3-Clause | 字节码读取 |
 | [Kuromoji IPADIC 0.9.0](https://github.com/atilika/kuromoji) | Apache-2.0；词典另有 NAIST / ICOT 条款 | 日语分词与读音 |
+| [Backdrop 2.0.1](https://github.com/Kyant0/AndroidLiquidGlass) / [Shapes 1.2.1](https://github.com/Kyant0/Shapes)，Kyant | Apache-2.0 | 播放页菜单的实时液态玻璃材质与形状 |
 | Gradle Wrapper | Apache-2.0 | 构建工具 |
 
-相关许可证见 `licenses/`。Kuromoji 的词典版权与许可说明见 `licenses/Kuromoji-IPADIC-NOTICE.txt`。Jaudiotagger 作为独立 JAR 分发，其对应源码随包置于 `source/`，可替换为兼容版本。
+相关许可证见 `licenses/`，Backdrop 和 Shapes 使用的 Apache-2.0 许可证见 `licenses/Apache-2.0.txt`。Kuromoji 的词典版权与许可说明见 `licenses/Kuromoji-IPADIC-NOTICE.txt`。Jaudiotagger、Backdrop 和 Shapes 作为独立 JAR 分发，对应源码随包置于 `source/`，可替换为兼容版本。
 
 ## 数据与字体
 

@@ -25,7 +25,12 @@ dependencies {
     implementation("net.jthink:jaudiotagger:3.0.1")
     implementation("org.ow2.asm:asm:9.10.1")
     implementation("com.atilika.kuromoji:kuromoji-ipadic:0.9.0")
+    // Share the host's Compose/Skia runtime; only ship the glass engine and its shape library.
+    implementation("io.github.kyant0:backdrop-desktop:2.0.1") { isTransitive = false }
+    implementation("io.github.kyant0:shapes-desktop:1.2.1") { isTransitive = false }
     dependencySources("net.jthink:jaudiotagger:3.0.1:sources")
+    dependencySources("io.github.kyant0:backdrop-desktop:2.0.1:sources")
+    dependencySources("io.github.kyant0:shapes-desktop:1.2.1:sources")
 }
 
 spmod {

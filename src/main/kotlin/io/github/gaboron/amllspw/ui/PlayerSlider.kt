@@ -42,6 +42,7 @@ import kotlin.math.tanh
 @Composable
 internal fun PlayerSlider(value: Float, enabled: Boolean, label: String, reducedMotion: Boolean,
     modifier: Modifier = Modifier, gestureKey: Any? = Unit,
+    spectrum: PlayerSpectrumMotion? = null,
     formatValue: (Float) -> String = { "${(it * 100).toInt()}%" },
     onPreview: (Float?) -> Unit = {}, onCommit: (Float) -> Unit) {
     val interactions = remember { MutableInteractionSource() }
@@ -103,6 +104,19 @@ internal fun PlayerSlider(value: Float, enabled: Boolean, label: String, reduced
                 if (!enabled) disabled()
                 setProgress { if (enabled) { commit(it.coerceIn(0f, 1f)); true } else false }
             }) {
+            if (spectrum != null) {
+                val step = size.width / spectrum.bands
+                val barWidth = (step * .55f).coerceAtMost(4.dp.toPx())
+                for (band in 0 until spectrum.bands) {
+                    val level = spectrum.level(band)
+                    val barHeight = (2f + level * (6f + height * .5f)).dp.toPx()
+                    val lit = (value * spectrum.bands - band).coerceIn(0f, 1f)
+                    drawRoundRect(color.copy(alpha = if (enabled) .18f + .6f * lit else .1f),
+                        topLeft = androidx.compose.ui.geometry.Offset(step * (band + .5f) - barWidth / 2f, (size.height - barHeight) / 2f),
+                        size = Size(barWidth, barHeight), cornerRadius = CornerRadius(barWidth / 2f))
+                }
+                return@Canvas
+            }
             val railHeight = height.dp.toPx()
             val top = (size.height - railHeight) / 2
             val bounds = androidx.compose.ui.geometry.Rect(0f, top, size.width, top + railHeight)

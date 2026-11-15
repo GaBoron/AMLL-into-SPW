@@ -25,7 +25,8 @@ internal data class NativePlayerTarget(
     }
     enum class ChromeKind { COVER, MINI_PLAYER }
     data class Chrome(val member: Member, val caller: String, val kind: ChromeKind)
-    data class Popup(val content: Member, val stateOwner: String, val isOpen: Member, val open: Member)
+    data class Popup(val content: Member, val stateOwner: String, val isOpen: Member, val open: Member,
+        val dismiss: Member, val shell: Member, val shellCaller: String, val body: Member?, val scopeOwner: String?)
     private data class Call(val target: Member, val opcode: Int, val defaultMask: Int?)
     private data class Body(val member: Member, val access: Int, val markers: List<String>, val calls: List<Call>)
 
@@ -109,11 +110,40 @@ internal data class NativePlayerTarget(
                                 call.target.owner == stateOwner && call.target.descriptor == "(Z)V" && call.defaultMask == 1
                             }
                         }
+                        val dismiss = stateBodies.single { body -> body.member.descriptor == "()V" &&
+                            body.access and Opcodes.ACC_PUBLIC != 0 && body.calls.any { call ->
+                                call.target.owner == stateOwner && call.target.descriptor == "(Z)V" && call.defaultMask == 0
+                            }
+                        }
                         // Invoke the original flyout, including its normal builder hooked by SPW Lyrics.
                         if (role == "more") require(bodies.any { body -> body.member.owner == content.member.owner &&
                             body.calls.any { it.target.owner == "com/xuncorp/voxzen/service/PlaybackController" &&
                                 it.target.name == "releaseAudioEngine" } })
-                        role to Popup(content.member, stateOwner, isOpen.member, open.member)
+                        val menuDescriptor = "(Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function1;${COMPOSER}II)V"
+                        val outerCall = content.calls.single { call ->
+                            if (role == "more") call.target.descriptor == menuDescriptor
+                            else call.target.descriptor.startsWith("(L$stateOwner;Landroidx/compose/ui/") &&
+                                call.target.descriptor.endsWith(";Lkotlin/jvm/functions/Function3;${COMPOSER}II)V")
+                        }
+                        val outer = jar.bodies(outerCall.target.owner).single { it.member == outerCall.target }
+                        val shell = outer.calls.single { call -> call.opcode == Opcodes.INVOKESTATIC &&
+                            if (role == "more") call.target.descriptor ==
+                                "(Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function1;${COMPOSER}II)V"
+                            else call.target.descriptor.startsWith("(L$stateOwner;") &&
+                                call.target.descriptor.endsWith(";Landroidx/compose/ui/Modifier;JLkotlin/jvm/functions/Function3;${COMPOSER}II)V")
+                        }
+                        require(shell.defaultMask == 0) { "菜单内容插槽省略了默认参数" }
+                        val body = if (role == "more") jar.bodies(shell.target.owner).marked(
+                            "com.xuncorp.spc.ui.component.popupmenu.PopupMenuContent (PopupMenu.kt:").member else null
+                        val scope = if (role == "queue") {
+                            val entry = bodies.single { it.member.owner == content.member.owner && it.markers.any { marker ->
+                                marker.startsWith("com.xuncorp.voxzen.ui.player.queue.PlaybackQueuePopup.<anonymous> (") } }
+                            Type.getArgumentTypes(entry.member.descriptor)[1].internalName.also { owner ->
+                                require(jar.bodies(owner).isEmpty()) { "播放列表内容作用域不再是标记接口" }
+                            }
+                        } else null
+                        role to Popup(content.member, stateOwner, isOpen.member, open.member, dismiss.member,
+                            shell.target, outer.member.owner, body, scope)
                     }.onFailure { System.err.println("AMLL: 原生播放器 $role 菜单不可用：${it.message}") }.getOrNull()
                 }.toMap()
                 val surface = bodies.marked(SURFACE)
@@ -200,6 +230,9 @@ internal data class NativePlayerTarget(
 
         private fun List<Body>.marked(marker: String): Body =
             singleOrNull { body -> body.markers.any { it.startsWith(marker) } } ?: error("无法唯一确认原生页面组件：$marker")
+
+        private fun JarFile.bodies(owner: String): List<Body> =
+            getInputStream(requireNotNull(getJarEntry("$owner.class"))).use { read(it.readBytes()) }
 
         private fun read(bytes: ByteArray): List<Body> {
             val reader = ClassReader(bytes)

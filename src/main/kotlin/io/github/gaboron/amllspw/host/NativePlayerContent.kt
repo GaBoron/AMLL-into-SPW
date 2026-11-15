@@ -2,8 +2,12 @@
 package io.github.gaboron.amllspw.host
 
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import com.xuncorp.spw.workshop.api.WorkshopApi
 import com.xuncorp.spw.workshop.api.hook.HookHandle
 import com.xuncorp.spw.workshop.api.UnstableSpwWorkshopApi
@@ -40,6 +44,9 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
     private val sheetBottom = method(target.sheetBottom)
     private val sheetProgress = method(target.sheetProgress)
     private val actions = runCatching { NativePlayerActions(loader) }.getOrNull()
+    private val spectrum = runCatching { NativePlayerSpectrum(loader) }.onFailure {
+        System.err.println("AMLL: 播放频谱不可用：${it.message}")
+    }.getOrNull()
     private val handles = mutableListOf<HookHandle>()
     private val callStack = StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE)
     private var ready by mutableStateOf(false)
@@ -59,6 +66,11 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
             handles += WorkshopApi.hookRegistrar.replaceComposable(layer.member.owner.replace('/', '.'),
                 layer.member.name, layer.caller.replace('/', '.'), layer.member.parameters) { call ->
                 Chrome(runtime, originalLayer, call.arguments)
+            }
+        }
+        for ((role, popup) in popups) {
+            runCatching { handles += popup.install() }.onFailure {
+                System.err.println("AMLL: 播放器 $role 菜单内容接入失败：${it.message}")
             }
         }
         // Workshop rejects ordinary method hooks on composables. Override the native
@@ -104,6 +116,9 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
     private fun sheetVisible(state: Any): Boolean = sheetExpanded.invoke(state) == true ||
         (sheetProgress.invoke(sheetBottom.invoke(state)) as Number).toFloat() > 0f
 
+    private fun reveal(state: Any): Float = (sheetProgress.invoke(sheetBottom.invoke(state)) as Number)
+        .toFloat().takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: if (sheetExpanded.invoke(state) == true) 1f else 0f
+
     /** The same mode getter also styles navigation and the collapsed capsule. Leave those calls native. */
     private fun isGlassCallSite(): Boolean = callStack.walk { frames ->
         val stack = frames.iterator()
@@ -121,9 +136,28 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
     private fun Chrome(runtime: AmllRuntime, original: Method, arguments: List<Any?>) {
         // Read the native snapshot state in composition so collapsing the sheet restores
         // the cover and mini player even when the rebuilt page itself is no longer composed.
-        if (hideNativeChrome(runtime)) return
+        val enabled = rebuilding(runtime)
         val flags = List(original.parameterCount - arguments.size - 1) { 0 }
-        original.invoke(null, *(arguments + currentComposer + flags).toTypedArray())
+        if (!enabled) {
+            original.invoke(null, *(arguments + currentComposer + flags).toTypedArray())
+            return
+        }
+        val state = currentComposer.consume(sheetLocal)
+        SideEffect { sheetState = state }
+        val progress = reveal(state)
+        // Both layers follow the sheet's physical position, including reversals while dragging.
+        Layout(content = {
+            Box(propagateMinConstraints = true) {
+                original.invoke(null, *(arguments + currentComposer + flags).toTypedArray())
+            }
+        }, modifier = Modifier.graphicsLayer { alpha = 1f - progress }.then(
+            if (progress >= 1f) Modifier.clearAndSetSemantics {} else Modifier)) { children, constraints ->
+            val child = children.single().measure(constraints)
+            layout(child.width, child.height) {
+                // Keep native remembers warm without drawing or exposing invisible hit targets.
+                if (progress < 1f) child.place(0, 0)
+            }
+        }
     }
 
     @Composable
@@ -132,15 +166,23 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
             original.invoke(null, arguments[0], arguments[1], currentComposer, 0)
             return
         }
-        val content: @Composable () -> Unit = { RebuiltPage(runtime, menu) }
+        val state = currentComposer.consume(sheetLocal)
+        val progress = reveal(state)
+        val expanded = sheetExpanded.invoke(state) == true
+        val content: @Composable () -> Unit = { RebuiltPage(runtime, menu, progress, expanded) }
         original.invoke(null, arguments[0], content, currentComposer, 0)
     }
 
     @Composable
-    private fun RebuiltPage(runtime: AmllRuntime, menu: NativeLyricsMenu?) {
+    private fun RebuiltPage(runtime: AmllRuntime, menu: NativeLyricsMenu?, progress: Float, expanded: Boolean) {
         val options by runtime.preferences.options.collectAsState()
         val presentation by runtime.presentation.collectAsState()
-        PlayerPage(presentation, options, Modifier.fillMaxSize(),
+        PlayerPage(presentation, options, Modifier.fillMaxSize().graphicsLayer { alpha = progress },
+            pageExpanded = expanded,
+            readSpectrum = {
+                if (!presentation.externalPlayback && runtime.clock.sample(presentation.trackKey).playing == true)
+                    runCatching { spectrum?.read() }.getOrNull() else null
+            },
             onPlayback = {
                 val sample = runtime.clock.sample(presentation.trackKey)
                 val buffering = !presentation.externalPlayback && runCatching { actions?.buffering() == true }.getOrDefault(false)
