@@ -53,7 +53,8 @@ internal class PlayerSpectrumMotion(val bands: Int = 48) {
             // Keep note/transient peaks instead of raising every wide band by its
             // total power. A small fixed width correction still reveals real treble.
             val magnitude = (.75 * peak + .25 * rms) * if (available) widthGains[band] else 1.0
-            val normalized = if (magnitude > 0.0) ((20.0 * log10(magnitude) + 96.0) / 80.0)
+            // Keep a fixed -96 dB floor and reserve the top for peaks near full scale.
+            val normalized = if (magnitude > 0.0) ((20.0 * log10(magnitude) + 96.0) / 96.0)
                 .coerceAtLeast(0.0) else 0.0
             // Preserve contrast below 80% height; only the top has a soft ceiling.
             val level = if (normalized <= .8) normalized.toFloat()
