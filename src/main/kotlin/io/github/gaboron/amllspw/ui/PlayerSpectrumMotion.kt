@@ -4,6 +4,7 @@ import androidx.compose.runtime.*
 import io.github.gaboron.amllspw.timeline.SpringMotion
 import io.github.gaboron.amllspw.spectrum.SpectrumAnalyzer
 import io.github.gaboron.amllspw.spectrum.SpectrumFrame
+import io.github.gaboron.amllspw.spectrum.SpectrumTargetBuffer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,7 +18,8 @@ import kotlin.math.*
 internal class PlayerSpectrumMotion(val bands: Int = 48) {
     private val envelopes = Array(bands) { SpringMotion() }
     private val analyzer = SpectrumAnalyzer(bands)
-    private val targets get() = analyzer.levels
+    private val buffer = SpectrumTargetBuffer(bands)
+    private val targets get() = buffer.levels
     private val heldPeaks = FloatArray(bands)
     private val holdRemaining = FloatArray(bands)
     private val signal = MutableStateFlow(0L)
@@ -27,6 +29,11 @@ internal class PlayerSpectrumMotion(val bands: Int = 48) {
     fun accept(frame: SpectrumFrame?, seconds: Float = 1f / 60f) {
         hasData = frame != null && (frame.sampleRate == 0 || frame.sampleRate >= 8000) && frame.magnitudes.size >= 16
         analyzer.accept(frame, seconds)
+        if (hasData) buffer.accept(analyzer.levels) else {
+            buffer.clear()
+            heldPeaks.fill(0f)
+            holdRemaining.fill(0f)
+        }
         for (band in targets.indices) {
             val level = targets[band]
             if (level > .0001f && level >= heldPeaks[band]) {
@@ -94,10 +101,13 @@ internal class PlayerSpectrumMotion(val bands: Int = 48) {
 }
 
 @Composable
-internal fun rememberPlayerSpectrum(read: () -> SpectrumFrame?): PlayerSpectrumMotion {
+internal fun rememberPlayerSpectrum(read: () -> SpectrumFrame?, onActive: () -> Unit, onIdle: () -> Unit): PlayerSpectrumMotion {
     val reader by rememberUpdatedState(read)
+    val active by rememberUpdatedState(onActive)
+    val idle by rememberUpdatedState(onIdle)
     val motion = remember { PlayerSpectrumMotion() }
     LaunchedEffect(motion) {
+        active()
         launch { motion.animate() }
         var previous = System.nanoTime()
         while (true) {
@@ -108,5 +118,6 @@ internal fun rememberPlayerSpectrum(read: () -> SpectrumFrame?): PlayerSpectrumM
             delay(16)
         }
     }
+    DisposableEffect(motion) { onDispose { idle() } }
     return motion
 }

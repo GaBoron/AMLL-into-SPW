@@ -2,11 +2,10 @@ package io.github.gaboron.amllspw.host
 
 import com.xuncorp.spw.workshop.api.WorkshopApi
 import io.github.gaboron.amllspw.spectrum.SpectrumFrame
-import org.objectweb.asm.*
-import java.lang.reflect.Method
+import java.io.File
 import java.lang.reflect.Modifier
 
-/** Reads multi-resolution output FFT when the native binding is verified, retaining the host getter as fallback. */
+/** An owned decode-only stream analyzes the track before the host's volume DSP, including while muted. */
 internal class NativePlayerSpectrum(loader: ClassLoader = WorkshopApi::class.java.classLoader) : AutoCloseable {
     private val controller = Class.forName("com.xuncorp.voxzen.service.PlaybackController", false, loader)
     private val serviceType = Class.forName("com.xuncorp.voxzen.service.PlaybackService", false, loader)
@@ -14,129 +13,128 @@ internal class NativePlayerSpectrum(loader: ClassLoader = WorkshopApi::class.jav
     private val service = controller.declaredFields.single { it.type == serviceType && Modifier.isStatic(it.modifiers) }
         .also { check(it.trySetAccessible()) }
     private val player = serviceType.getMethod("getPlayer").also { require(it.returnType == playerType) }
-    private val fft = playerType.methods.single { it.parameterCount == 0 && it.returnType == FloatArray::class.java }
-    private val native = runCatching { NativeBassSpectrum(loader, playerType, fft) }.getOrNull()
+    private val itemType = Class.forName("com.xuncorp.pisces.PiscesMediaItem", false, loader)
+    private val item = playerType.methods.single { it.parameterCount == 0 && it.returnType == itemType }
+    // This is the path getter used by the host's BassImpl stream factory.
+    private val path = itemType.getMethod("\u052c").also { require(it.returnType == String::class.java) }
+    private val decoder = NativeSpectrumDecoder(loader)
     private var closed = false
+    private var viewers = 0
 
     @Synchronized
-    fun read(): SpectrumFrame? {
-        if (closed) return null
-        val current = player.invoke(service.get(null)) ?: return null
-        runCatching { native?.read(current) }.getOrNull()?.let { return it }
-        val values = (fft.invoke(current) as? FloatArray)?.takeIf { it.size >= 16 } ?: return null
-        return SpectrumFrame(values, runCatching { native?.sampleRate(current) }.getOrNull() ?: 0)
+    fun activate() { if (!closed) viewers++ }
+
+    @Synchronized
+    fun read(positionMs: Long): SpectrumFrame? {
+        if (closed || viewers == 0) return null
+        val current = player.invoke(service.get(null)) ?: return pause().let { null }
+        val media = item.invoke(current) ?: return pause().let { null }
+        return decoder.read(path.invoke(media) as String, positionMs.coerceAtLeast(0))
+    }
+
+    @Synchronized
+    fun pause() = decoder.release()
+
+    @Synchronized
+    fun idle() {
+        viewers = (viewers - 1).coerceAtLeast(0)
+        if (viewers == 0) decoder.release()
     }
 
     @Synchronized
     override fun close() {
         if (closed) return
         closed = true
-        native?.close()
+        viewers = 0
+        decoder.close()
     }
 }
 
-/** Resolve the host's own BASS binding and output handle from its verified FFT call site. */
-private class NativeBassSpectrum(loader: ClassLoader, playerType: Class<*>, fft: Method) : AutoCloseable {
-    private data class Member(val owner: String, val name: String, val descriptor: String) {
-        fun method(loader: ClassLoader): Method = Class.forName(owner.replace('/', '.'), false, loader)
-            .getMethod(name, *Type.getArgumentTypes(descriptor).map {
-                if (it.sort == Type.INT) Int::class.javaPrimitiveType!! else Class.forName(it.className, false, loader)
-            }.toTypedArray())
-    }
-
-    private val concrete = Class.forName("com.xuncorp.pisces.\u0528", false, loader)
-    private val engineType = Class.forName("com.xuncorp.pisces.\u052c", false, loader)
-    private val engine = concrete.declaredFields.single { it.type.name == "com.xuncorp.pisces.\u0529" }
-        .also { check(it.trySetAccessible()) }
-    private val mode = playerType.methods.single { it.parameterCount == 0 && it.returnType.name == "${playerType.name}\$Mode" }
-    private val calls = mutableListOf<Member>()
-    private val fields = mutableListOf<Member>()
-
-    init {
-        require(Type.getMethodDescriptor(fft) == "()[F")
-        val path = "/${engineType.name.replace('.', '/')}.class"
-        val bytes = requireNotNull(engineType.getResourceAsStream(path)).use { it.readBytes() }
-        var readers = 0
-        ClassReader(bytes).accept(object : ClassVisitor(Opcodes.ASM9) {
-            override fun visitMethod(access: Int, name: String, descriptor: String, signature: String?, exceptions: Array<out String>?): MethodVisitor? {
-                if (descriptor != "()[F" || access and Opcodes.ACC_PUBLIC == 0) return null
-                readers++
-                return object : MethodVisitor(Opcodes.ASM9) {
-                    override fun visitMethodInsn(opcode: Int, owner: String, name: String, descriptor: String, isInterface: Boolean) {
-                        calls += Member(owner, name, descriptor)
-                    }
-                    override fun visitFieldInsn(opcode: Int, owner: String, name: String, descriptor: String) {
-                        if (opcode == Opcodes.GETFIELD) fields += Member(owner, name, descriptor)
-                    }
-                }
-            }
-        }, ClassReader.SKIP_DEBUG or ClassReader.SKIP_FRAMES)
-        require(readers == 1) { "Native FFT entry is ambiguous" }
-    }
-
-    private val data = calls.single { it.descriptor == "(ILcom/sun/jna/Pointer;I)I" }.method(loader)
-    private val api = calls.single { it.owner == concrete.name.replace('.', '/') &&
-        it.descriptor == "()L${data.declaringClass.name.replace('.', '/')};" }.method(loader)
-    private val channel = calls.single { it.owner == concrete.name.replace('.', '/') &&
-        it.descriptor.startsWith("()L") && it.name != api.name }.method(loader)
-    private val handle = calls.single { it.descriptor == "()I" &&
-        Class.forName(it.owner.replace('/', '.'), false, loader).isAssignableFrom(channel.returnType) }.method(loader)
-    private val lock = fields.distinct().single { it.owner == engineType.name.replace('.', '/') &&
-        it.descriptor == "Ljava/lang/Object;" }.let { engineType.getDeclaredField(it.name) }
-        .also { check(it.trySetAccessible()) }
+/** Reuses the host's loaded BASS codecs without altering its playback channel, DSP or settings. */
+private class NativeSpectrumDecoder(loader: ClassLoader) : AutoCloseable {
     private val bassType = Class.forName("com.moriafly.bass.BASS", false, loader)
+    private val libraryType = Class.forName("com.moriafly.bass.BASSLibrary", false, loader)
+    private val companion = libraryType.getField("Companion").get(null)
+    private val library = companion.javaClass.methods.single { it.parameterCount == 0 && it.returnType == libraryType }
+        .invoke(companion)
+    private val create = bassType.methods.single { it.parameterTypes.contentEquals(arrayOf(
+        String::class.java, Long::class.javaPrimitiveType, Long::class.javaPrimitiveType, Int::class.javaPrimitiveType)) }
+    private val free = libraryType.getMethod("BASS_ChannelFree", Int::class.javaPrimitiveType)
+    private val secondsToBytes = libraryType.getMethod("BASS_ChannelSeconds2Bytes", Int::class.javaPrimitiveType, Double::class.javaPrimitiveType)
+    private val seek = libraryType.getMethod("BASS_ChannelSetPosition", Int::class.javaPrimitiveType, Long::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+    private val pointerType = Class.forName("com.sun.jna.Pointer", false, loader)
+    private val data = libraryType.getMethod("BASS_ChannelGetData", Int::class.javaPrimitiveType, pointerType, Int::class.javaPrimitiveType)
     private val infoType = Class.forName("${bassType.name}\$BASS_CHANNELINFO", false, loader)
-    private val info = bassType.methods.single { it.parameterTypes.contentEquals(arrayOf(Int::class.javaPrimitiveType, infoType)) }
-    private val bassApi = bassType.fields.single { it.type == bassType && Modifier.isStatic(it.modifiers) }.get(null)
+    private val info = libraryType.getMethod("BASS_ChannelGetInfo", Int::class.javaPrimitiveType, infoType)
     private val frequency = infoType.getField("freq")
-    private val flags = infoType.getField("flags")
     private val memoryType = Class.forName("com.sun.jna.Memory", false, loader)
     private val storage = lazy { memoryType.getConstructor(Long::class.javaPrimitiveType).newInstance(16384L * 4) }
     private val floats = memoryType.getMethod("getFloatArray", Long::class.javaPrimitiveType, Int::class.javaPrimitiveType)
-    private var lastHandle: Int? = null
-    private var rate = 0
-    private var decoding = false
+    private val unicode = if (System.getProperty("os.name").startsWith("Windows")) Int.MIN_VALUE else 0
+    private var channel = 0
+    private var sampleRate = 0
+    private var source = ""
+    private var retryAt = 0L
 
-    fun sampleRate(player: Any): Int {
-        if (!concrete.isInstance(player)) return 0
-        val output = channel.invoke(player) ?: return 0
-        val current = handle.invoke(output) as Int
-        if (current != lastHandle || rate == 0) {
-            val format = infoType.getConstructor().newInstance()
-            val valid = info.invoke(bassApi, current, format) == true
-            rate = if (valid) frequency.getInt(format) else 0
-            decoding = !valid || flags.getInt(format) and 0x200000 != 0
-            lastHandle = current
+    fun read(path: String, positionMs: Long): SpectrumFrame? {
+        if (path != source) {
+            release()
+            source = path
         }
-        return rate
+        if (channel == 0) {
+            if (System.nanoTime() < retryAt) return null
+            retryAt = System.nanoTime() + 2_000_000_000L
+            if (!File(path).isFile) return null
+            channel = create.invoke(null, path, 0L, 0L, unicode or 0x200100) as Int // DECODE | FLOAT
+            if (channel == 0) return null
+            val format = infoType.getConstructor().newInstance()
+            if (info.invoke(library, channel, format) != true) {
+                releaseChannel()
+                return null
+            }
+            sampleRate = frequency.getInt(format)
+            if (sampleRate < 8000) {
+                releaseChannel()
+                return null
+            }
+        }
+        val shift = if (sampleRate > 96000) 2 else if (sampleRate > 48000) 1 else 0
+        fun window(flag: Int, points: Int): FloatArray? {
+            val count = points shl shift
+            // Center both windows on the playback clock instead of letting their
+            // different lengths place bass and percussion at different moments.
+            val start = (positionMs / 1000.0 - count.toDouble() / sampleRate).coerceAtLeast(0.0)
+            val offset = secondsToBytes.invoke(library, channel, start) as Long
+            if (seek.invoke(library, channel, offset, 0) != true) return null
+            val read = data.invoke(library, channel, storage.value, Int.MIN_VALUE or (flag + shift) or 0x40) as Int
+            return when {
+                read < 0 -> null
+                read == 0 -> FloatArray(count)
+                else -> floats.invoke(storage.value, 0L, count) as FloatArray
+            }
+        }
+        val low = window(5, 4096) ?: return null
+        val high = window(3, 1024) ?: return null
+        return SpectrumFrame(low, sampleRate, high)
     }
 
-    fun read(player: Any): SpectrumFrame? {
-        // Only the non-decoding DirectX output may be read this way. WASAPI/ASIO
-        // consume decoding streams in their callbacks; retain their own FFT getter.
-        if (!concrete.isInstance(player) || (mode.invoke(player) as? Enum<*>)?.name != "DirectX") return null
-        val delegate = engine.get(player) ?: return null
-        return synchronized(lock.get(delegate)) {
-            val sampleRate = sampleRate(player)
-            if (sampleRate < 8000 || decoding) return@synchronized null
-            val output = channel.invoke(player) ?: return@synchronized null
-            val current = handle.invoke(output) as Int
-            val binding = api.invoke(player)
-            // Approximately 170 ms for bass resolution, 43 ms for percussion detail,
-            // scaled with sample rate rather than changing the represented frequencies.
-            val shift = if (sampleRate > 96000) 2 else if (sampleRate > 48000) 1 else 0
-            fun readWindow(flag: Int, points: Int): FloatArray? {
-                val result = data.invoke(binding, current, storage.value, (Int.MIN_VALUE or (flag + shift) or 0x40)) as Int
-                return if (result == -1) null else floats.invoke(storage.value, 0L, points shl shift) as FloatArray
-            }
-            val low = readWindow(5, 4096) ?: return@synchronized null
-            val high = readWindow(3, 1024) ?: return@synchronized null
-            SpectrumFrame(low, sampleRate, high)
+    private fun releaseChannel() {
+        if (channel != 0) {
+            val owned = channel
+            channel = 0
+            free.invoke(library, owned)
         }
+    }
+
+    fun release() {
+        releaseChannel()
+        source = ""
+        sampleRate = 0
+        retryAt = 0L
     }
 
     override fun close() {
-        // Lazy native storage is owned by this bridge, never by the host engine.
+        release()
         if (storage.isInitialized()) memoryType.getMethod("close").invoke(storage.value)
     }
 }

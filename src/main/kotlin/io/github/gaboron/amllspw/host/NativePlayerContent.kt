@@ -175,9 +175,16 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
         PlayerPage(presentation, options, Modifier.fillMaxSize().graphicsLayer { alpha = progress },
             pageExpanded = expanded,
             readSpectrum = {
-                if (!presentation.externalPlayback && runtime.clock.sample(presentation.trackKey).playing == true)
-                    runCatching { spectrum?.read() }.getOrNull() else null
+                val sample = runtime.clock.sample(presentation.trackKey)
+                if (!presentation.externalPlayback && sample.playing == true)
+                    runCatching { spectrum?.read(sample.positionMs) }.getOrNull()
+                else {
+                    spectrum?.pause()
+                    null
+                }
             },
+            onSpectrumActive = { spectrum?.activate() },
+            onSpectrumIdle = { spectrum?.idle() },
             onPlayback = {
                 val sample = runtime.clock.sample(presentation.trackKey)
                 val buffering = !presentation.externalPlayback && runCatching { actions?.buffering() == true }.getOrDefault(false)

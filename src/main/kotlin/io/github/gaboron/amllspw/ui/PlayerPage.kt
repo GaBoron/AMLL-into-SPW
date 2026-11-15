@@ -38,8 +38,9 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
     queue: @Composable (Float, Float) -> Unit = { _, _ -> }, readVolume: () -> Float? = { null }, onVolume: (Float) -> Unit = {},
     readMode: () -> String? = { null }, onMode: (String) -> Unit = {},
     pageMenu: (@Composable (Float) -> Unit)? = null, pageExpanded: Boolean = true,
-    readSpectrum: () -> SpectrumFrame? = { null }, lyrics: @Composable () -> Unit) {
-    val spectrum = rememberPlayerSpectrum(readSpectrum)
+    readSpectrum: () -> SpectrumFrame? = { null }, onSpectrumActive: () -> Unit = {}, onSpectrumIdle: () -> Unit = {},
+    lyrics: @Composable () -> Unit) {
+    val spectrum = rememberPlayerSpectrum(readSpectrum, onSpectrumActive, onSpectrumIdle)
     val glassPopups = remember { PlayerGlassPopups() }
     val backdrop = rememberLayerBackdrop()
     LaunchedEffect(pageExpanded, presentation.trackKey) { glassPopups.dismiss() }
