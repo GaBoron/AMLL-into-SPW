@@ -37,6 +37,8 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
     @Suppress("UNCHECKED_CAST")
     private val sheetLocal = method(target.sheetLocal).invoke(null) as CompositionLocal<Any>
     private val sheetExpanded = method(target.sheetExpanded)
+    private val sheetBottom = method(target.sheetBottom)
+    private val sheetProgress = method(target.sheetProgress)
     private val actions = runCatching { NativePlayerActions(loader) }.getOrNull()
     private val handles = mutableListOf<HookHandle>()
     private val callStack = StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE)
@@ -91,11 +93,16 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
         // Capture the state from this window's actual composition, then let the material
         // getter observe the same snapshot-backed expansion state on subsequent rendering.
         SideEffect { sheetState = state }
-        return sheetExpanded.invoke(state) == true
+        return sheetVisible(state)
     }
 
     private fun hideGlass(runtime: AmllRuntime): Boolean = rebuilding(runtime) &&
-        sheetState?.let { sheetExpanded.invoke(it) == true } == true
+        sheetState?.let(::sheetVisible) == true
+
+    // The target switches to collapsed at the start of the slide. Keep one set of
+    // page layers until the native sheet actually reaches its collapsed position.
+    private fun sheetVisible(state: Any): Boolean = sheetExpanded.invoke(state) == true ||
+        (sheetProgress.invoke(sheetBottom.invoke(state)) as Number).toFloat() > 0f
 
     /** The same mode getter also styles navigation and the collapsed capsule. Leave those calls native. */
     private fun isGlassCallSite(): Boolean = callStack.walk { frames ->

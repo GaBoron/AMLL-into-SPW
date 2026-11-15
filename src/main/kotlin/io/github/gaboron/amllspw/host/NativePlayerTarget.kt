@@ -16,6 +16,8 @@ internal data class NativePlayerTarget(
     val glassCaller: Member,
     val sheetLocal: Member,
     val sheetExpanded: Member,
+    val sheetBottom: Member,
+    val sheetProgress: Member,
 ) {
     data class Member(val owner: String, val name: String, val descriptor: String) {
         val parameters: List<String> get() = Type.getArgumentTypes(descriptor)
@@ -179,10 +181,21 @@ internal data class NativePlayerTarget(
                     it.target.owner == SHEET_STATE && it.target.descriptor == "()Z" }
                     .map { it.target }.distinct().singleOrNull() ?: error("无法唯一确认播放页展开状态")
                 require(mini.calls.any { it.target == expanded && it.opcode == Opcodes.INVOKEVIRTUAL }) { "迷你播放条展开状态已改变" }
+                val stateBodies = jar.getInputStream(requireNotNull(jar.getJarEntry("$SHEET_STATE.class"))).use { read(it.readBytes()) }
+                val bottom = stateBodies.single { body -> body.access and Opcodes.ACC_PUBLIC != 0 &&
+                    Type.getArgumentTypes(body.member.descriptor).isEmpty() &&
+                    Type.getReturnType(body.member.descriptor).sort == Type.OBJECT }.member
+                val bottomOwner = Type.getReturnType(bottom.descriptor).internalName
+                val bottomBodies = jar.getInputStream(requireNotNull(jar.getJarEntry("$bottomOwner.class"))).use { read(it.readBytes()) }
+                val progress = bottomBodies.single { it.access and Opcodes.ACC_PUBLIC != 0 && it.member.descriptor == "()F" }.member
+                require(bodies.any { body -> body.member.owner == surface.member.owner &&
+                    body.calls.any { it.target == bottom } && body.calls.any { it.target == progress } }) {
+                    "播放页滑动进度来源已改变"
+                }
                 NativePlayerTarget(theme.member, page.member.owner, controls, popups, listOf(
                     Chrome(cover.member, surface.member.owner, ChromeKind.COVER),
                     Chrome(theme.member, mini.member.owner, ChromeKind.MINI_PLAYER),
-                ), glassEnabled, glassSites.single().first.member, local, expanded)
+                ), glassEnabled, glassSites.single().first.member, local, expanded, bottom, progress)
             }
 
         private fun List<Body>.marked(marker: String): Body =
