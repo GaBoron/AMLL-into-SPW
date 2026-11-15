@@ -63,7 +63,7 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
         for ((layer, originalLayer) in chrome) {
             handles += WorkshopApi.hookRegistrar.replaceComposable(layer.member.owner.replace('/', '.'),
                 layer.member.name, layer.caller.replace('/', '.'), layer.member.parameters) { call ->
-                Chrome(runtime, originalLayer, call.arguments)
+                Chrome(runtime, layer.kind, originalLayer, call.arguments)
             }
         }
         for ((role, popup) in popups) {
@@ -131,7 +131,7 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
     }
 
     @Composable
-    private fun Chrome(runtime: AmllRuntime, original: Method, arguments: List<Any?>) {
+    private fun Chrome(runtime: AmllRuntime, kind: NativePlayerTarget.ChromeKind, original: Method, arguments: List<Any?>) {
         // Read the native snapshot state in composition so collapsing the sheet restores
         // the cover and mini player even when the rebuilt page itself is no longer composed.
         val enabled = rebuilding(runtime)
@@ -145,8 +145,11 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
         val progress = reveal(state)
         // Emit the native nodes directly into their original parent. A wrapper Layout
         // swallows the mini player's BoxScope alignment and moves its capsule to the top.
-        // Native chrome already follows the sheet's motion; restore it as closing starts.
-        if (progress < 1f) original.invoke(null, *(arguments + currentComposer + flags).toTypedArray())
+        // The floating host cover must leave on the first opening frame. The capsule
+        // keeps its native sheet motion, and both layers can return during closing.
+        val openingCover = kind == NativePlayerTarget.ChromeKind.COVER && sheetExpanded.invoke(state) == true
+        if (!openingCover && progress < 1f)
+            original.invoke(null, *(arguments + currentComposer + flags).toTypedArray())
     }
 
     @Composable

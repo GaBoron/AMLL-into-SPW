@@ -17,22 +17,35 @@ internal class PlayerSpectrumMotion(val bands: Int = 48) {
     private val targets = FloatArray(bands)
     private val signal = MutableStateFlow(0L)
     private var revision by mutableIntStateOf(0)
+    private var sourceBins = 0
+    private val edges = IntArray(bands + 1)
 
     fun accept(fft: FloatArray?) {
         var changed = false
         val count = fft?.size ?: 0
-        val logarithm = ln(count.coerceAtLeast(2).toDouble())
+        val available = count > bands
+        if (available && sourceBins != count) {
+            sourceBins = count
+            edges[0] = 1 // BASS's first FFT point is DC, not a bass band.
+            val logarithm = ln(count.toDouble())
+            for (edge in 1..bands) {
+                // Respect the native FFT resolution: every source bin belongs to one
+                // band, and the first few bass points are never copied to many bars.
+                edges[edge] = exp(logarithm * edge / bands).roundToInt()
+                    .coerceIn(edges[edge - 1] + 1, count - (bands - edge))
+            }
+        }
         for (band in targets.indices) {
-            val start = exp(logarithm * band / bands).toInt().coerceIn(1, count.coerceAtLeast(1))
-            val end = exp(logarithm * (band + 1) / bands).toInt().coerceIn(start + 1, maxOf(count, start + 1))
             var energy = 0.0
-            if (fft != null) for (bin in start until minOf(end, count)) {
-                val value = fft[bin].takeIf { it.isFinite() && it > 0f } ?: 0f
+            if (available && fft != null) for (bin in edges[band] until edges[band + 1]) {
+                val value = fft[bin].takeIf { it.isFinite() && it > 0f }?.toDouble() ?: 0.0
                 energy += value * value
             }
-            val rms = sqrt(energy / maxOf(1, minOf(end, count) - start))
-            // A fixed dB window preserves musical dynamics instead of normalizing every frame to full height.
-            val level = ((20.0 * log10(rms.coerceAtLeast(1e-8)) + 78.0) / 54.0).toFloat().coerceIn(0f, 1f)
+            // Integrate band power instead of averaging away the wider treble bands.
+            // A soft knee retains bass dynamics without clipping at -24 dB. The
+            // fixed floor keeps quiet harmonics visible without frame normalization.
+            val level = if (energy > 0.0) tanh(((10.0 * log10(energy) + 105.0) / 80.0)
+                .coerceAtLeast(0.0)).toFloat() else 0f
             if (abs(level - targets[band]) > .0001f) changed = true
             targets[band] = level
         }

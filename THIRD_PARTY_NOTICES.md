@@ -20,7 +20,7 @@
 
 ## 菜单材质与动效
 
-更多、播放列表与歌词右键菜单的材质组合、留白、轮廓变形、内容过渡及开合弹簧移植或适配自 FlClash 使用的 [Prism UI](https://github.com/chen08209/prism_ui/tree/63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185)：[`liquid_glass.dart`](https://github.com/chen08209/prism_ui/blob/63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185/lib/liquid_glass.dart)、[`popup.dart`](https://github.com/chen08209/prism_ui/blob/63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185/lib/popup.dart)。上游由 chen08209 维护，采用 GPL-3.0，许可证见 `licenses/Prism-UI-GPL-3.0.txt`。玻璃渲染使用下列 Backdrop 依赖提供的 Compose 实现。
+更多、播放列表与歌词右键菜单的材质组合、留白、轮廓变形、内容过渡及开合弹簧移植或适配自 FlClash 使用的 [Prism UI](https://github.com/chen08209/prism_ui/tree/63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185)：[`liquid_glass.dart`](https://github.com/chen08209/prism_ui/blob/63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185/lib/liquid_glass.dart)、[`popup.dart`](https://github.com/chen08209/prism_ui/blob/63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185/lib/popup.dart)、[`goo.dart`](https://github.com/chen08209/prism_ui/blob/63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185/lib/goo.dart)。上游由 chen08209 维护，采用 GPL-3.0，许可证见 `licenses/Prism-UI-GPL-3.0.txt`。玻璃渲染使用下列 Backdrop 依赖提供的 Compose 实现。
 
 ## 色彩与发光
 

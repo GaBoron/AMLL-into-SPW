@@ -58,7 +58,7 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
     CompositionLocalProvider(LocalPlayerColor provides color, LocalPlayerGlassPopups provides glassPopups) {
         Box(modifier.fillMaxSize()) {
             BoxWithConstraints(Modifier.fillMaxSize().then(
-                if (glassPopups.current != null) Modifier.layerBackdrop(backdrop) else Modifier)
+                if (glassPopups.active) Modifier.layerBackdrop(backdrop) else Modifier)
                 .clipToBounds().background(Color.Black)) {
                 val preferred = AmllPlayerStyle(maxWidth.value, maxHeight.value)
                 val title = playerTrackTitle(presentation)

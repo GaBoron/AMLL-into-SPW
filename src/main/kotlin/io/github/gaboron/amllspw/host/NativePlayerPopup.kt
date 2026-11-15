@@ -4,6 +4,8 @@ package io.github.gaboron.amllspw.host
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.roundToIntRect
@@ -14,6 +16,7 @@ import com.xuncorp.spw.workshop.api.hook.HookHandle
 import io.github.gaboron.amllspw.ui.LocalPlayerGlassPopups
 import io.github.gaboron.amllspw.ui.PlayerGlassPopupEntry
 import io.github.gaboron.amllspw.ui.PlayerMediaButton
+import io.github.gaboron.amllspw.ui.PlayerIcon
 import java.lang.invoke.MethodType
 import java.lang.reflect.Proxy
 
@@ -76,12 +79,15 @@ internal class NativePlayerPopup(target: NativePlayerTarget.Popup, private val l
     @Composable
     fun Button(label: String, icon: String, side: Float, iconSize: Float, enabled: Boolean, reducedMotion: Boolean) {
         val state = remember { constructor.newInstance(false) }
+        val sourceIconSize by rememberUpdatedState(iconSize)
         val entry = remember { PlayerGlassPopupEntry(label) { dismiss.invoke(state) }.also {
             it.width = if (body == null) 400.dp else 280.dp
+            it.source = { PlayerIcon(icon, null, Modifier.size(sourceIconSize.dp)) }
         } }
         val host = LocalPlayerGlassPopups.current
         val expanded = ready && isOpen.invoke(state) == true
-        Box(Modifier.onGloballyPositioned { entry.anchor = it.boundsInWindow().roundToIntRect() }) {
+        Box(Modifier.onGloballyPositioned { entry.anchor = it.boundsInWindow().roundToIntRect() }
+            .graphicsLayer { alpha = if (entry.sourceHidden) 0f else 1f }) {
             PlayerMediaButton(label, icon, side, iconSize, enabled && ready && host != null, reducedMotion) { open.invoke(state) }
             if (expanded) CompositionLocalProvider(LocalPlayerPopupEntry provides entry) {
                 content.invoke(null, state, currentComposer, 0)

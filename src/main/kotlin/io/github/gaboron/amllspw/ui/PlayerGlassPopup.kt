@@ -17,6 +17,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.foundation.shape.GenericShape
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.platform.LocalDensity
@@ -42,6 +44,8 @@ internal class PlayerGlassPopupEntry(val label: String, val dismiss: () -> Unit)
     var anchor by mutableStateOf(IntRect.Zero)
     var expanded by mutableStateOf(false)
     var content by mutableStateOf<(@Composable () -> Unit)?>(null)
+    var source: (@Composable () -> Unit)? = null
+    var sourceHidden by mutableStateOf(false)
     var atPointer: Boolean = false
     var width: Dp = 280.dp
 }
@@ -49,18 +53,23 @@ internal class PlayerGlassPopupEntry(val label: String, val dismiss: () -> Unit)
 /** The popup is a sibling of the recorded backdrop, so it can never sample itself. */
 @Stable
 internal class PlayerGlassPopups {
+    val entries = mutableStateListOf<PlayerGlassPopupEntry>()
+    val active: Boolean get() = entries.isNotEmpty()
     var current by mutableStateOf<PlayerGlassPopupEntry?>(null)
         private set
 
     fun show(entry: PlayerGlassPopupEntry) {
         if (current !== entry) current?.dismiss?.invoke()
+        if (entry !in entries) entries += entry
         current = entry
     }
 
-    fun dismiss() { current?.dismiss?.invoke() }
+    fun dismiss() { entries.toList().forEach { it.dismiss() } }
 
     fun finished(entry: PlayerGlassPopupEntry) {
+        entry.sourceHidden = false
         entry.content = null
+        entries.remove(entry)
         if (current === entry) current = null
     }
 }
@@ -80,7 +89,7 @@ internal fun PlayerGlassLayer(reducedMotion: Boolean, modifier: Modifier = Modif
     DisposableEffect(host) { onDispose { host.dismiss() } }
     CompositionLocalProvider(LocalPlayerGlassPopups provides host) {
         Box(modifier) {
-            Box(Modifier.fillMaxSize().then(if (host.current != null) Modifier.layerBackdrop(backdrop) else Modifier)) { content() }
+            Box(Modifier.fillMaxSize().then(if (host.active) Modifier.layerBackdrop(backdrop) else Modifier)) { content() }
             PlayerGlassPopupHost(host, backdrop, reducedMotion)
         }
     }
@@ -88,12 +97,12 @@ internal fun PlayerGlassLayer(reducedMotion: Boolean, modifier: Modifier = Modif
 
 @Composable
 internal fun PlayerGlassPopupHost(host: PlayerGlassPopups, backdrop: Backdrop, reducedMotion: Boolean) {
-    val entry = host.current ?: return
-    key(entry) { PlayerGlassPopup(entry, host, backdrop, reducedMotion) }
+    for (entry in host.entries) key(entry) { PlayerGlassPopup(entry, host, backdrop, reducedMotion) }
 }
 
 @Composable
 private fun PlayerGlassPopup(entry: PlayerGlassPopupEntry, host: PlayerGlassPopups, backdrop: Backdrop, reducedMotion: Boolean) {
+    DisposableEffect(entry) { onDispose { host.finished(entry) } }
     val density = LocalDensity.current
     val window = LocalWindowInfo.current.containerSize
     val maxHeight = if (window.height > 0) with(density) { window.height.toDp() - 32.dp } else 480.dp
@@ -105,9 +114,11 @@ private fun PlayerGlassPopup(entry: PlayerGlassPopupEntry, host: PlayerGlassPopu
     var from by remember { mutableStateOf(PlayerGlassMotion.source(entry.anchor.toRect())) }
     var destination by remember { mutableStateOf(Rect.Zero) }
     val target = position.surface.toRect()
+    val returning = entry.source != null && !entry.atPointer
     val frame = if (destination.width <= 0 || destination.height <= 0) from else if (opening)
-        PlayerGlassMotion.open(from, destination, phase.value, density.density)
-    else PlayerGlassMotion.close(from, entry.anchor.toRect(), phase.value)
+        PlayerGlassMotion.open(from, destination, phase.value, density.density,
+            if (returning) entry.anchor.toRect() else null)
+    else PlayerGlassMotion.close(from, entry.anchor.toRect(), phase.value, returning, density.density)
     val current by rememberUpdatedState(frame)
     val expanded = entry.expanded && entry.content != null
     LaunchedEffect(expanded, position.surface, reducedMotion) {
@@ -115,8 +126,10 @@ private fun PlayerGlassPopup(entry: PlayerGlassPopupEntry, host: PlayerGlassPopu
             from = current
             destination = target
             opening = expanded
+            entry.sourceHidden = returning
             phase.snapTo(0f)
-            phase.animateTo(1f, tween(if (reducedMotion) 0 else if (expanded) 450 else 200, easing = LinearEasing))
+            phase.animateTo(1f, tween(if (reducedMotion) 0 else if (expanded) 450 else if (returning) 500 else 200,
+                easing = LinearEasing))
             if (!expanded) host.finished(entry)
         }
     }
@@ -127,23 +140,31 @@ private fun PlayerGlassPopup(entry: PlayerGlassPopupEntry, host: PlayerGlassPopu
             Box(Modifier.width(entry.width.coerceAtMost(maxWidth.coerceAtLeast(1.dp)))
                 .heightIn(max = maxHeight.coerceAtLeast(1.dp))
                 .semantics { contentDescription = "${entry.label} 液态玻璃弹层" }, propagateMinConstraints = true) {
-                Box(Modifier.matchParentSize().requiredSize(with(density) { frame.rect.width.coerceAtLeast(1f).toDp() },
-                    with(density) { frame.rect.height.coerceAtLeast(1f).toDp() }).drawBackdrop(backdrop = backdrop,
+                val bounds = frame.outline.bounds
+                Box(Modifier.matchParentSize().requiredSize(with(density) { bounds.width.coerceAtLeast(1f).toDp() },
+                    with(density) { bounds.height.coerceAtLeast(1f).toDp() }).drawBackdrop(backdrop = backdrop,
                     // Read snapshot state inside the library's retained shape callback so its clip follows the rim.
-                    shape = { RoundedCornerShape(with(density) { current.radius.toDp() }) },
+                    shape = {
+                        if (current.outline.merged) RoundedCornerShape(with(density) { current.radius.toDp() })
+                        else GenericShape { _, _ -> addPath(current.outline.path, -current.outline.bounds.topLeft) }
+                    },
                     effects = {
-                        colorControls(brightness = if (dark) .4f else .05f,
-                            contrast = if (dark) 1.8f else 1.1f, saturation = if (dark) 1.75f else 2f)
-                        blur(12.dp.toPx())
-                        lens(20.dp.toPx(), 60.dp.toPx())
+                        val optics = current.optics
+                        val brightness = 1f + (if (dark) .8f else .1f) * optics
+                        colorControls(brightness = (brightness - 1f) / 2f,
+                            contrast = brightness, saturation = if (dark) 2.84f + (1.75f - 2.84f) * optics
+                                else 2.08f + (2f - 2.08f) * optics)
+                        blur(current.frost.dp.toPx())
+                        if (current.outline.merged) lens(20.dp.toPx(), 60.dp.toPx())
                     },
                     highlight = { Highlight(1.3.dp, alpha = current.opacity,
-                        style = HighlightStyle.Default(color = Color.White.copy(alpha = .27f))) },
+                        style = if (current.outline.merged) HighlightStyle.Default(color = Color.White.copy(alpha = .27f))
+                            else HighlightStyle.Plain(color = Color.White.copy(alpha = .27f))) },
                     shadow = { Shadow(29.dp, DpOffset(0.dp, 8.dp), Color.Black.copy(alpha = if (dark) .177f else .118f)) },
                     // Only the pane's bounds change. The source remains in window coordinates at a fixed scale.
                     layerBlock = {
-                        translationX = current.rect.center.x - target.center.x
-                        translationY = current.rect.center.y - target.center.y
+                        translationX = current.outline.bounds.center.x - target.center.x
+                        translationY = current.outline.bounds.center.y - target.center.y
                         alpha = current.opacity
                     }, onDrawSurface = {
                         drawRect(if (dark) Color(0xff444444).copy(alpha = .63f) else Color(0xfff9f9f9).copy(alpha = .55f))
@@ -155,7 +176,7 @@ private fun PlayerGlassPopup(entry: PlayerGlassPopupEntry, host: PlayerGlassPopu
                     translationX = current.rect.center.x - target.center.x
                     translationY = current.rect.center.y - target.center.y
                     alpha = current.content
-                    val sigma = (4f * (1f - current.content)).dp.toPx()
+                    val sigma = current.contentBlur.dp.toPx()
                     renderEffect = if (sigma > .1f) BlurEffect(sigma, sigma) else null
                 }.drawWithContent {
                     val scale = (current.rect.width / size.width.coerceAtLeast(1f)).coerceAtLeast(.001f)
@@ -165,6 +186,17 @@ private fun PlayerGlassPopup(entry: PlayerGlassPopupEntry, host: PlayerGlassPopu
                         size.width, size.height / 2 + halfHeight), CornerRadius(radius))) }
                     clipPath(clip) { this@drawWithContent.drawContent() }
                 }.padding(8.dp), propagateMinConstraints = true) { entry.content?.invoke() }
+                if (returning && target.width > 0f && target.height > 0f && frame.glyph != null && frame.glyphOpacity > 0f) {
+                    Box(Modifier.matchParentSize().requiredSize(with(density) { entry.anchor.width.toDp() },
+                        with(density) { entry.anchor.height.toDp() }).graphicsLayer {
+                        val glyph = current.glyph ?: return@graphicsLayer
+                        scaleX = glyph.width / entry.anchor.width.coerceAtLeast(1)
+                        scaleY = glyph.height / entry.anchor.height.coerceAtLeast(1)
+                        translationX = glyph.center.x - target.center.x
+                        translationY = glyph.center.y - target.center.y
+                        alpha = current.glyphOpacity
+                    }, contentAlignment = Alignment.Center) { entry.source?.invoke() }
+                }
             }
         }
     }

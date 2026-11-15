@@ -38,7 +38,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import kotlin.math.tanh
 
-internal const val PLAYER_SPECTRUM_HEIGHT_DP = 116f
+internal const val PLAYER_SPECTRUM_HEIGHT_DP = 60f
 
 /** Eight-pixel resting rail, twenty-pixel hover rail, no separate thumb, and a soft twelve-pixel edge bounce. */
 @Composable
@@ -112,7 +112,7 @@ internal fun PlayerSlider(value: Float, enabled: Boolean, label: String, reduced
                 val barWidth = (step * .62f).coerceAtMost(5.dp.toPx())
                 for (band in 0 until spectrum.bands) {
                     val level = spectrum.level(band)
-                    val peakHeight = (30f + height * .2f) * 3.2f
+                    val peakHeight = (30f + height * .2f) * 1.6f
                     val barHeight = (3f + level * (peakHeight - 3f)).dp.toPx()
                     val lit = (value * spectrum.bands - band).coerceIn(0f, 1f)
                     drawRoundRect(color.copy(alpha = if (enabled) .30f + .62f * lit else .16f),
