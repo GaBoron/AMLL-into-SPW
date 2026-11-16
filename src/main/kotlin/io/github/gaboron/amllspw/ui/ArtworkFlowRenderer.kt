@@ -5,6 +5,7 @@ package io.github.gaboron.amllspw.ui
 
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asSkiaBitmap
+import org.jetbrains.skia.BlendMode
 import org.jetbrains.skia.Canvas
 import org.jetbrains.skia.FilterTileMode
 import org.jetbrains.skia.Image
@@ -87,10 +88,15 @@ internal class ArtworkFlowRenderer : AutoCloseable {
         transitionStart = if (visible == null) time - 1.8f else time
     }
 
-    private fun blendImages(previous: Image, next: Image, progress: Float): Image =
-        Surface.makeRasterN32Premul(192, 192).use { surface ->
-            val bounds = Rect.makeWH(192f, 192f)
+    private fun blendImages(previous: Image, next: Image, progress: Float): Image {
+        val edge = maxOf(previous.width, previous.height, next.width, next.height)
+        return Surface.makeRasterN32Premul(edge, edge).use { surface ->
+            surface.canvas.clear(0)
+            val bounds = Rect.makeWH(edge.toFloat(), edge.toFloat())
             Paint().use { alpha ->
+                // Weighted addition interpolates premultiplied color and transparency together.
+                alpha.blendMode = BlendMode.PLUS
+                alpha.setAlphaf(1f - progress)
                 surface.canvas.drawImageRect(previous,
                     Rect.makeWH(previous.width.toFloat(), previous.height.toFloat()), bounds,
                     SamplingMode.LINEAR, alpha, true)
@@ -101,6 +107,7 @@ internal class ArtworkFlowRenderer : AutoCloseable {
             }
             surface.makeImageSnapshot()
         }
+    }
 
     private fun paletteImage(palette: List<Int>): Image = Surface.makeRasterN32Premul(2, 2).use { surface ->
         Paint().use { fill ->
@@ -136,29 +143,34 @@ internal class ArtworkFlowRenderer : AutoCloseable {
                 return float2(c * p.x - s * p.y, s * p.x + c * p.y);
             }
 
-            half3 artwork(float2 uv) {
+            half4 artwork(float2 uv) {
                 uv = clamp(uv, 0.0, 1.0);
-                if (blend >= 1.0) return nextArt.eval(uv * nextSize).rgb;
-                if (blend <= 0.0) return previousArt.eval(uv * previousSize).rgb;
-                return mix(previousArt.eval(uv * previousSize).rgb, nextArt.eval(uv * nextSize).rgb, blend);
+                if (blend >= 1.0) return nextArt.eval(uv * nextSize);
+                if (blend <= 0.0) return previousArt.eval(uv * previousSize);
+                return mix(previousArt.eval(uv * previousSize), nextArt.eval(uv * nextSize), blend);
             }
 
             half3 layer(half3 base, float2 p, float2 center, float radius, float angle, float opacity) {
                 float2 q = (p - center) / radius;
-                float mask = (1.0 - smoothstep(0.12, 1.0, length(q))) * opacity;
-                return mix(base, artwork(rotate(q * 0.5, angle) + 0.5), mask);
+                half4 sample = artwork(rotate(q * 0.5, angle) + 0.5);
+                // The preblurred alpha supplies the feather; another radial fade would flatten it.
+                return base * (1.0 - sample.a * opacity) + sample.rgb * opacity;
             }
 
             half4 main(float2 pixel) {
                 float2 uv = pixel / resolution;
                 float2 p = (pixel - resolution * 0.5) / max(resolution.x, resolution.y);
-                half3 color = artwork(rotate(p * 0.72, time * 0.022) + 0.5);
-                color = layer(color, p, float2(-0.12, 0.05), 0.68, -time * 0.046 + 1.3, 0.66);
-                color = layer(color, p, float2(-0.45, 0.30), 0.58, time * 0.058 + 3.7, 0.48);
-                color = layer(color, p, float2(0.45, -0.30), 0.62, -time * 0.034 + 5.1, 0.44);
-                // Compress broad highlights smoothly so pale covers stay behind the lyric text.
+                half4 base = artwork(rotate(p * 0.55, time * 0.041) + 0.5);
+                half3 color = base.rgb + half3(0.025, 0.025, 0.03) * (1.0 - base.a);
+                float2 drift = float2(sin(time * 0.073), cos(time * 0.061)) * 0.045;
+                color = layer(color, p, float2(-0.10, 0.04) + drift, 0.74, -time * 0.092 + 1.3, 0.80);
+                color = layer(color, p, float2(-0.40, 0.24) - drift, 0.60, time * 0.138 + 3.7, 0.76);
+                color = layer(color, p, float2(0.40, -0.26) + drift, 0.58, -time * 0.115 + 5.1, 0.70);
+                // Preserve colorful midtones and compress bright areas to keep white lyrics readable.
                 float luminance = dot(color, half3(0.2126, 0.7152, 0.0722));
-                color *= 0.72 / (1.0 + luminance * 0.7);
+                color = max(half3(luminance) + (color - luminance) * 1.18, half3(0.0));
+                luminance = dot(color, half3(0.2126, 0.7152, 0.0722));
+                color *= 0.90 / (1.0 + max(0.0, luminance - 0.22) * 1.4);
                 float vignette = 1.0 - smoothstep(0.3, 0.8, distance(uv, float2(0.5)));
                 color *= 0.85 + vignette * 0.15;
                 float noise = fract(52.9829189 * fract(dot(pixel, float2(0.06711056, 0.00583715))));
