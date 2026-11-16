@@ -18,17 +18,21 @@ internal fun blurredCoverArtwork(artwork: ImageBitmap): ImageBitmap {
     val left = (artwork.width - edge) / 2f
     val top = (artwork.height - edge) / 2f
     val crop = Rect.makeXYWH(left, top, edge, edge)
-    val bounds = Rect.makeLTRB(40f, 40f, 216f, 216f)
+    // Preserve the cover-to-padding and blur ratios of a 512px source at a bounded texture size.
+    val scale = 256f / (512f + 180f)
+    val inset = 90f * scale
+    val content = 512f * scale
+    val bounds = Rect.makeXYWH(inset, inset, content, content)
     return Surface.makeRasterN32Premul(256, 256).use { source ->
         source.canvas.clear(0)
-        source.canvas.clipRRect(RRect.makeLTRB(40f, 40f, 216f, 216f, 88f), true)
+        source.canvas.clipRRect(RRect.makeLTRB(bounds.left, bounds.top, bounds.right, bounds.bottom, content / 2f), true)
         Image.makeFromBitmap(artwork.asSkiaBitmap()).use { image ->
             source.canvas.drawImageRect(image, crop, bounds, SamplingMode.LINEAR, null, true)
         }
         Surface.makeRasterN32Premul(256, 256).use { blurred ->
             blurred.canvas.clear(0)
             // Padding contains the Gaussian tail; the blur must not be clipped to the cover circle.
-            ImageFilter.makeBlur(14f, 14f, FilterTileMode.DECAL).use { blur ->
+            ImageFilter.makeBlur(40f * scale, 40f * scale, FilterTileMode.DECAL).use { blur ->
                 Paint().use { paint ->
                     paint.imageFilter = blur
                     source.makeImageSnapshot().use { blurred.canvas.drawImage(it, 0f, 0f, paint) }

@@ -20,7 +20,7 @@
 
 ## 播放页背景
 
-模糊封面多层交融的视觉方向参考 surfbryce 的 [Beautiful Lyrics](https://github.com/surfbryce/beautiful-lyrics)。纹理预处理、原生渲染与换曲过渡由本项目独立实现，未引入该项目的源码或资源。
+模糊封面多层交融的视觉方向、图层布局与旋转节奏参考 surfbryce 的 [Beautiful Lyrics](https://github.com/surfbryce/beautiful-lyrics/tree/61ac582da092311e893423269ca7f09003108705)，对应 [Shared.ts](https://github.com/surfbryce/beautiful-lyrics/blob/61ac582da092311e893423269ca7f09003108705/Extension/Source/LyricViews/Shared.ts) 与 [Shaders.ts](https://github.com/surfbryce/beautiful-lyrics/blob/61ac582da092311e893423269ca7f09003108705/Extension/Source/LyricViews/Shaders.ts)。纹理预处理、原生渲染与换曲过渡由本项目独立实现，未引入该项目的源码或资源。
 
 ## 菜单材质与动效
 

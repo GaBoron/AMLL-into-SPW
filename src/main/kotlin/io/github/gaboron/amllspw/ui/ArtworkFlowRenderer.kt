@@ -54,7 +54,8 @@ internal class ArtworkFlowRenderer : AutoCloseable {
         builder.uniform("previousSize", previous.image.width.toFloat(), previous.image.height.toFloat())
         builder.uniform("nextSize", next.image.width.toFloat(), next.image.height.toFloat())
         builder.uniform("resolution", width.coerceAtLeast(1f), height.coerceAtLeast(1f))
-        builder.uniform("time", time)
+        // Four commensurate rotation rates repeat after 28π seconds; keep shader angles bounded.
+        builder.uniform("phase", ((time.toDouble() / 3.5) % (Math.PI * 8)).toFloat())
         builder.uniform("blend", blend)
         builder.makeShader().use { shader ->
             paint.shader = shader
@@ -134,7 +135,7 @@ internal class ArtworkFlowRenderer : AutoCloseable {
             uniform float2 previousSize;
             uniform float2 nextSize;
             uniform float2 resolution;
-            uniform float time;
+            uniform float phase;
             uniform float blend;
 
             float2 rotate(float2 p, float angle) {
@@ -159,13 +160,16 @@ internal class ArtworkFlowRenderer : AutoCloseable {
 
             half4 main(float2 pixel) {
                 float2 uv = pixel / resolution;
-                float2 p = (pixel - resolution * 0.5) / max(resolution.x, resolution.y);
-                half4 base = artwork(rotate(p * 0.55, time * 0.041) + 0.5);
+                float extent = max(resolution.x, resolution.y);
+                float2 p = (pixel - resolution * 0.5) / extent;
+                float2 corner = resolution / (2.0 * extent);
+                bool wide = resolution.x > resolution.y;
+                // Bitmap coordinates run downward: the corner pair is upper-left and lower-right.
+                half4 base = artwork(rotate(p / 3.0, -phase * 0.25) + 0.5);
                 half3 color = base.rgb + half3(0.025, 0.025, 0.03) * (1.0 - base.a);
-                float2 drift = float2(sin(time * 0.073), cos(time * 0.061)) * 0.045;
-                color = layer(color, p, float2(-0.10, 0.04) + drift, 0.74, -time * 0.092 + 1.3, 0.80);
-                color = layer(color, p, float2(-0.40, 0.24) - drift, 0.60, time * 0.138 + 3.7, 0.76);
-                color = layer(color, p, float2(0.40, -0.26) + drift, 0.58, -time * 0.115 + 5.1, 0.70);
+                color = layer(color, p, float2(0.0), wide ? 1.0 : 0.75, phase * 0.5, 0.75);
+                color = layer(color, p, -corner, 0.75, phase, 0.5);
+                color = layer(color, p, corner, wide ? 0.65 : 0.5, -phase * 0.75, 0.5);
                 // Preserve colorful midtones and compress bright areas to keep white lyrics readable.
                 float luminance = dot(color, half3(0.2126, 0.7152, 0.0722));
                 color = max(half3(luminance) + (color - luminance) * 1.18, half3(0.0));
