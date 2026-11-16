@@ -74,7 +74,7 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
                     info / density.density to time / density.density
                 }
                 val style = preferred.copy(infoTextHeight = minimumText.first, timeTextHeight = minimumText.second)
-                PlayerBackground(presentation.palette, options.reducedMotion)
+                PlayerBackground(presentation, options.reducedMotion)
                 val shown = style.cover(false)
                 val hidden = style.cover(true)
                 val movement = 1f - lyricVisibility

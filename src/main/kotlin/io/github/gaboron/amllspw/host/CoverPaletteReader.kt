@@ -2,6 +2,7 @@ package io.github.gaboron.amllspw.host
 
 import com.xuncorp.spw.workshop.api.WorkshopApi
 import io.github.gaboron.amllspw.cover.CoverLyricColor
+import io.github.gaboron.amllspw.cover.blurredCoverArtwork
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
 import java.util.concurrent.Executors
@@ -16,7 +17,8 @@ import androidx.compose.ui.graphics.toComposeImageBitmap
 internal class CoverPaletteReader(
     private val cover: (String) -> CompletionStage<ByteArray?> = { WorkshopApi.library.getCoverById(it) },
 ) : AutoCloseable {
-    data class Colors(val palette: List<Int>, val lyric: Int, val glow: Int = lyric, val artwork: ImageBitmap? = null)
+    data class Colors(val palette: List<Int>, val lyric: Int, val glow: Int = lyric,
+        val artwork: ImageBitmap? = null, val backgroundArtwork: ImageBitmap? = null)
 
     private val decoder = Executors.newSingleThreadExecutor { r -> Thread(r, "amll-cover-colors").apply { isDaemon = true } }
     private val cache = object : LinkedHashMap<String, Colors?>(32, .75f, true) {
@@ -70,7 +72,9 @@ internal class CoverPaletteReader(
             graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
             graphics.drawImage(image, 0, 0, thumbnail.width, thumbnail.height, null)
         } finally { graphics.dispose() }
-        return Colors(palette, accent.foreground, accent.glow, thumbnail.toComposeImageBitmap())
+        val artwork = thumbnail.toComposeImageBitmap()
+        val background = runCatching { blurredCoverArtwork(artwork) }.getOrNull()
+        return Colors(palette, accent.foreground, accent.glow, artwork, background)
     }
 
     override fun close() {
