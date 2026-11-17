@@ -77,7 +77,6 @@ internal fun LyricsContextMenu(runtime: AmllRuntime, menu: NativeLyricsMenu?, pr
                 LyricMenuItem("显示底栏信息", checked = !options.hideFooter) {
                     save { runtime.preferences.setFooterVisible(options.hideFooter) }
                 },
-                LyricMenuItem("爱发电赞助", separatorBefore = true, onClick = SponsorshipActions::openAfdian),
             )
             if (glassHost != null) {
                 val localPoint = Offset(point.x.toFloat(), point.y.toFloat())

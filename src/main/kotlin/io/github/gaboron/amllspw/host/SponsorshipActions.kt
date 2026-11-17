@@ -5,7 +5,7 @@ import java.awt.Desktop
 import java.net.URI
 import kotlin.concurrent.thread
 
-/** Shared by the lyric menu and the host's settings callback, including while the plugin is disabled. */
+/** Host settings callback, including while the plugin is disabled. */
 object SponsorshipActions {
     private const val URL = "https://afdian.com/a/gaboron"
 
