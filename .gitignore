@@ -7,10 +7,3 @@ build/
 .agents/
 local.properties
 /AGENTS.md
-/src/test/
-/test/
-/tests/
-**/*Test.kt
-**/*Test.java
-**/*Tests.kt
-**/*Tests.java
