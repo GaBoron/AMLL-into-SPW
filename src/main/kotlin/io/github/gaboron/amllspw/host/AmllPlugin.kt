@@ -22,12 +22,15 @@ class AmllPlugin(context: PluginContext) : SpwPlugin(context) {
         require(WorkshopApi.manager.isPermissionGranted(PluginPermission.CLASS_TRANSFORM) &&
             WorkshopApi.manager.isPermissionGranted(PluginPermission.LIBRARY_READ)) { "请授权修改宿主界面和读取曲库后启用 AMLL into SPW" }
         val target = NativeLyricsTarget.discover()
+        val menu = runCatching { NativeLyricsMenu.discover() }.onFailure {
+            System.err.println("AMLL: 原生歌词右键菜单不可用：${it.message}")
+        }.getOrNull()
         val created = AmllRuntime()
         try {
             handle = WorkshopApi.hookRegistrar.replaceComposable(target.owner, target.method, target.caller, target.parameters) { call ->
                 val arguments = NativeLyricsArguments.read(call.arguments)
                 // Argument 7 is "activated", not "showSubText".
-                NativeLyricsContent(created, arguments.modifier, true)
+                NativeLyricsContent(created, arguments.modifier, true, menu)
             }
             runCatching {
                 val player = NativePlayerContent(NativePlayerTarget.discover())

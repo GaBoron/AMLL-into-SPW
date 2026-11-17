@@ -115,6 +115,17 @@
           "summary": "控制歌词滚动、错落移动，以及翻译、音译和底栏展开／收起的弹簧效果。"
         }
       ]
+    },
+    {
+      "title": "支持开发",
+      "config": "amll.json",
+      "preferences": [
+        {
+          "type": "button", "title": "爱发电赞助", "arrow_type": "link",
+          "summary": "https://afdian.com/a/gaboron",
+          "on_click": "io.github.gaboron.amllspw.host.SponsorshipActions.openAfdian"
+        }
+      ]
     }
   ]
 }

@@ -37,8 +37,6 @@ import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.highlight.HighlightStyle
 import com.kyant.backdrop.shadow.Shadow
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
 
 internal class PlayerGlassPopupEntry(val label: String, val dismiss: () -> Unit) {
     var anchor by mutableStateOf(IntRect.Zero)
@@ -76,24 +74,6 @@ internal class PlayerGlassPopups {
 
 internal val LocalPlayerGlassPopups = staticCompositionLocalOf<PlayerGlassPopups?> { null }
 internal val LocalPlayerGlassDark = staticCompositionLocalOf { true }
-
-/** One fixed capture for this surface; popup geometry never changes the source's layout or scale. */
-@Composable
-internal fun PlayerGlassLayer(reducedMotion: Boolean, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    if (LocalPlayerGlassPopups.current != null) {
-        Box(modifier) { content() }
-        return
-    }
-    val host = remember { PlayerGlassPopups() }
-    val backdrop = rememberLayerBackdrop()
-    DisposableEffect(host) { onDispose { host.dismiss() } }
-    CompositionLocalProvider(LocalPlayerGlassPopups provides host) {
-        Box(modifier) {
-            Box(Modifier.fillMaxSize().then(if (host.active) Modifier.layerBackdrop(backdrop) else Modifier)) { content() }
-            PlayerGlassPopupHost(host, backdrop, reducedMotion)
-        }
-    }
-}
 
 @Composable
 internal fun PlayerGlassPopupHost(host: PlayerGlassPopups, backdrop: Backdrop, reducedMotion: Boolean) {

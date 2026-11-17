@@ -14,7 +14,8 @@
 <p align="center">
   <a href="https://github.com/GaBoron/AMLL-into-SPW/releases/latest">下载插件</a> ·
   <a href="docs/功能说明.md">功能详解</a> ·
-  <a href="https://github.com/GaBoron/AMLL-into-SPW/issues">问题反馈</a>
+  <a href="https://github.com/GaBoron/AMLL-into-SPW/issues">问题反馈</a> ·
+  <a href="https://afdian.com/a/gaboron">爱发电赞助</a>
 </p>
 
 进入 SPW 播放界面即可使用，歌词和播放控制都留在原来的页面中。
