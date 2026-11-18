@@ -6,5 +6,6 @@ object RegressionChecks {
         verifySpectrumEnvelope()
         verifyFooterProtocol()
         verifyConcurrentFooterUpdate()
+        verifyHostLyricsAvailability()
     }
 }

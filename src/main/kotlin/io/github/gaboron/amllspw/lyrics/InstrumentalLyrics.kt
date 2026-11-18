@@ -11,10 +11,8 @@ internal object InstrumentalLyrics {
     )
     private val englishNotices = setOf("instrumental", "instrumentalpleaseenjoy")
 
-    fun matches(document: LyricDocument): Boolean {
-        val texts = document.lines.map {
-            separators.replace(Normalizer.normalize(it.text, Normalizer.Form.NFKC).lowercase(Locale.ROOT), "")
-        }.filter(String::isNotBlank)
-        return texts.isEmpty() || texts.all { chineseNotice.matches(it) || it in englishNotices }
+    fun matches(document: LyricDocument): Boolean = document.lines.all { line ->
+        val text = separators.replace(Normalizer.normalize(line.text, Normalizer.Form.NFKC).lowercase(Locale.ROOT), "")
+        text.isBlank() || chineseNotice.matches(text) || text in englishNotices
     }
 }

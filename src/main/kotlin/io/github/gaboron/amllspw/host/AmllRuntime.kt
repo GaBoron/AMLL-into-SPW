@@ -43,6 +43,7 @@ internal class AmllRuntime : AutoCloseable {
     private val readings = JapaneseReadings()
     private val cantoneseReadings = CantoneseReadings()
     private val hostLyrics = HostLyricsAdapter(HostSecondaryLyrics(readings, cantoneseReadings))
+    private val hostLyricsAvailability = HostLyricsAvailability()
     private val annotations = JapaneseAnnotations(readings)
     private val cantoneseAnnotations = CantoneseAnnotations(cantoneseReadings)
     private val koreanAnnotations = KoreanAnnotations()
@@ -220,7 +221,7 @@ internal class AmllRuntime : AutoCloseable {
             it.title != media.title || it.artist != media.artist || it.album != media.album || it.duration != media.duration
         } == true
         if (initialized && next == key && !reload && !metadataChanged) {
-            if (languages != audioLanguages) {
+            if (languages != audioLanguages || hostLyricsAvailability.awaitingConfirmation) {
                 audioLanguages = languages
                 refreshDocument(media)
             } else refreshFooter()
@@ -235,13 +236,17 @@ internal class AmllRuntime : AutoCloseable {
         val ready = artwork.isDone
         val colors = if (ready) artwork.getNow(null) else null
         val previous = mutablePresentation.value
-        mutablePresentation.value = LyricsPresentation(trackKey = next,
+        val base = if (next == previous.trackKey) previous else {
+            hostLyricsAvailability.reset()
+            LyricsPresentation(trackKey = next, loading = true)
+        }
+        mutablePresentation.value = base.copy(
             title = media.title, artist = media.artist, album = media.album, durationMs = media.duration.coerceAtLeast(0),
             artwork = colors?.artwork, backgroundArtwork = colors?.backgroundArtwork,
             artworkLoading = !ready, externalPlayback = externalTrack != null,
             transportAvailable = externalTrack?.let(external::supportsTransport) ?: true,
             palette = colors?.palette ?: previous.palette,
-            lyricColor = colors?.lyric ?: if (ready) 0xffffffff.toInt() else previous.lyricColor, loading = true,
+            lyricColor = colors?.lyric ?: if (ready) 0xffffffff.toInt() else previous.lyricColor,
             lyricGlowColor = colors?.glow ?: if (ready) 0xffffffff.toInt() else previous.lyricGlowColor,
             footer = footerInbox.current(footerIdentityFor(media)))
         artwork.thenAccept { loaded -> enqueue { applyCover(media, next, artworkKey, loaded) } }
@@ -272,9 +277,17 @@ internal class AmllRuntime : AutoCloseable {
         val received = inbox.current(identityFor(media))
         val remoteLyrics = externalTrack?.let(external::lyrics)
         val native = if (received?.selected == true) received.document else localDocument ?: received?.document
-        val original = if (externalTrack != null) externalDocument(remoteLyrics, media.duration)
-            else native ?: hostLyrics.convert(WorkshopApi.playback.getLyricsLines(),
+        val followsHost = externalTrack == null && native == null
+        val original = when {
+            externalTrack != null -> externalDocument(remoteLyrics, media.duration)
+            native != null -> native
+            else -> hostLyrics.convert(WorkshopApi.playback.getLyricsLines(),
                 cantonese = options.automaticCantoneseRuby && CantoneseAnnotations.isCantonese(audioLanguages))
+        }
+        val current = mutablePresentation.value
+        if (followsHost) {
+            if (!hostLyricsAvailability.canPublish(original, current.isInstrumental)) return
+        } else hostLyricsAvailability.reset()
         val voiced = AutomaticVocals.apply(original, options.automaticVocalRoles)
         // Visibility belongs to rendering: keep annotations attached while their old layout fades out.
         val annotated = if (options.automaticCantoneseRuby && CantoneseAnnotations.isCantonese(voiced, audioLanguages))
@@ -283,9 +296,9 @@ internal class AmllRuntime : AutoCloseable {
         val document = koreanAnnotations.apply(annotated, options.automaticKoreanRuby)
         val offset = remoteLyrics?.offsetMs ?: if (native != null && native === received?.document) received.offsetMs else 0
         if (!closed && currentIdentity()?.matches(identityFor(media)) == true) {
-            val next = mutablePresentation.value.copy(document = document, offsetMs = offset,
+            val next = current.copy(document = document, offsetMs = offset,
                 footer = footerInbox.current(footerIdentityFor(media)),
-                loading = document.lines.isEmpty() && mutablePresentation.value.loading && !hostUpdated)
+                loading = !followsHost && document.lines.isEmpty() && current.loading && !hostUpdated)
             mutablePresentation.value = next.copy(poem = if (next.isInstrumental) poems.forTrack(key) else null)
         }
     }
@@ -324,6 +337,7 @@ internal class AmllRuntime : AutoCloseable {
     private fun clear() {
         key = ""; initialized = false; localDocument = null; inbox.close()
         selectedMedia = null
+        hostLyricsAvailability.reset()
         audioLanguages = emptyList()
         footerInbox.current(null)
         if (currentIdentity() == null) clock.clear()
