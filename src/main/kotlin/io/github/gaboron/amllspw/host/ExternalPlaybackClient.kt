@@ -1,15 +1,15 @@
 package io.github.gaboron.amllspw.host
 
+import io.github.gaboron.amllspw.interop.PlaybackIdentity
 import java.lang.management.ManagementFactory
 import java.net.URI
 import java.net.HttpURLConnection
+import javax.management.MBeanServer
 import javax.management.ObjectName
 import javax.management.openmbean.CompositeData
 
 /** JDK-only process-local contract, shared by independently loaded playback plugins. */
-internal class ExternalPlaybackClient {
-    private val server = ManagementFactory.getPlatformMBeanServer()
-
+internal class ExternalPlaybackClient(private val server: MBeanServer = ManagementFactory.getPlatformMBeanServer()) {
     fun snapshot(): ExternalPlayback? = runCatching {
         server.queryNames(SOURCES, null).mapNotNull(::snapshot)
             .maxWithOrNull(compareBy<ExternalPlayback> { it.activatedAtNanos }.thenBy { it.sourceName.canonicalName })
@@ -116,9 +116,10 @@ internal data class ExternalPlayback(
     val durationMs: Long, val positionMs: Long, val sampledAtNanos: Long, val playing: Boolean,
     val volumePercent: Int, val playbackSpeed: Double,
 ) {
-    val identity: String get() = listOf(sourceName.canonicalName, provider, sessionId, trackRevision.toString(), uri)
+    val identity = PlaybackIdentity.External(sourceName, provider, sessionId, trackRevision, uri)
+    val trackId = "external:" + listOf(sourceName.canonicalName, provider, sessionId, trackRevision.toString(), uri)
         .joinToString("") { "${it.length}:$it" }
-    val artworkKey: String get() = "external:$identity${coverUrl.length}:$coverUrl"
+    val artworkKey: String get() = "$trackId${coverUrl.length}:$coverUrl"
 
     fun currentPosition(): Long {
         val elapsed = if (playing) ((System.nanoTime() - sampledAtNanos) / 1_000_000L).coerceAtLeast(0) else 0

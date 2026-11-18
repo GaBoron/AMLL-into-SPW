@@ -5,46 +5,57 @@ import java.text.Collator
 import java.util.Locale
 
 /** Current-song contributions, independently replaceable by each provider. No disk cache. */
-internal class FooterInbox(private val currentTrack: () -> TrackIdentity?) : AutoCloseable {
+internal class FooterInbox(private val currentTrack: () -> PlaybackIdentity?) : AutoCloseable {
     private val entries = mutableMapOf<String, FooterContribution>()
     private val names = Collator.getInstance(Locale.CHINA).apply { strength = Collator.PRIMARY }
-    private var track: TrackIdentity? = null
+    private var track: PlaybackIdentity? = null
+    private var trackVersion = 0L
     private var closed = false
 
-    fun submit(providerId: String?, providerName: String?, requested: TrackIdentity,
+    fun submit(providerId: String?, providerName: String?, requested: PlaybackIdentity,
         keys: Array<out String?>?, values: Array<out String?>?): Boolean {
         val contribution = validate(providerId, providerName, keys, values) ?: return false
-        return synchronized(this) {
-            if (closed || selectCurrent()?.matches(requested) != true) return false
-            if (contribution.providerId !in entries && entries.size >= MAX_PROVIDERS) return false
+        return withCurrentTrack(false) { playing ->
+            if (playing?.matches(requested) != true) return@withCurrentTrack false
+            if (contribution.providerId !in entries && entries.size >= MAX_PROVIDERS) return@withCurrentTrack false
             entries[contribution.providerId] = contribution
             true
         }
     }
 
-    @Synchronized fun clear(providerId: String?, requested: TrackIdentity): Boolean {
-        if (closed || selectCurrent()?.matches(requested) != true) return false
-        return entries.remove(providerId) != null
+    fun clear(providerId: String?, requested: PlaybackIdentity): Boolean = withCurrentTrack(false) { playing ->
+        playing?.matches(requested) == true && entries.remove(providerId) != null
     }
 
-    @Synchronized fun current(requested: TrackIdentity?): List<FooterContribution> {
-        if (closed) return emptyList()
-        val playing = selectCurrent()
-        if (requested == null || playing?.matches(requested) != true) return emptyList()
-        return entries.values.sortedWith { a, b ->
-            names.compare(a.providerName, b.providerName).takeIf { it != 0 }
-                ?: a.providerId.compareTo(b.providerId)
+    fun current(requested: PlaybackIdentity?): List<FooterContribution> =
+        withCurrentTrack(emptyList()) { playing ->
+            if (requested == null || playing?.matches(requested) != true) return@withCurrentTrack emptyList()
+            entries.values.sortedWith { a, b ->
+                names.compare(a.providerName, b.providerName).takeIf { it != 0 }
+                    ?: a.providerId.compareTo(b.providerId)
+            }
         }
-    }
 
-    /** Read the live identity under the same lock as writes, including before the first IO poll. */
-    private fun selectCurrent(): TrackIdentity? {
-        val playing = currentTrack()
-        if (playing == null || track?.matches(playing) != true) {
-            entries.clear()
-            track = playing
+    private fun <T> withCurrentTrack(ifClosed: T, action: (PlaybackIdentity?) -> T): T {
+        while (true) {
+            val observed = synchronized(this) {
+                if (closed) return ifClosed
+                trackVersion
+            }
+            // Source snapshot getters can acquire plugin locks. Retry if another call changed the track meanwhile.
+            val playing = currentTrack()
+            synchronized(this) {
+                if (closed) return ifClosed
+                if (trackVersion == observed) {
+                    if (track != playing && (playing == null || track?.matches(playing) != true)) {
+                        entries.clear()
+                        track = playing
+                        trackVersion++
+                    }
+                    return action(playing)
+                }
+            }
         }
-        return playing
     }
 
     private fun validate(providerId: String?, providerName: String?, keys: Array<out String?>?,

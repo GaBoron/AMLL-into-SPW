@@ -55,7 +55,7 @@ class AmllPlugin(context: PluginContext) : SpwPlugin(context) {
             active = created
             current = created
             bridge = TtmlBridge(TtmlReceiver(created))
-            footerBridge = FooterBridge(FooterReceiver(created))
+            footerBridge = FooterBridge(created.footerReceiver)
             created.start()
         } catch (e: Throwable) {
             release(created, e)

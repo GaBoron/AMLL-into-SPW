@@ -82,7 +82,7 @@ val regressionTest = tasks.register<JavaExec>("regressionTest") {
     description = "Run deterministic regression checks without SPW or network access"
     dependsOn(tasks.testClasses)
     classpath = sourceSets["test"].runtimeClasspath + sourceSets["main"].compileClasspath
-    mainClass.set("io.github.gaboron.amllspw.verify.SpectrumRegression")
+    mainClass.set("io.github.gaboron.amllspw.verify.RegressionChecks")
 }
 tasks.test {
     dependsOn(regressionTest)

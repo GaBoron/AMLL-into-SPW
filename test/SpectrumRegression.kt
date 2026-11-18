@@ -101,9 +101,3 @@ private fun verifyTargetBuffer() {
     check(buffer.levels.all { it == 0f })
     println("Short target buffer: isolated peaks, fine chatter, gradual motion and silence clear passed")
 }
-
-object SpectrumRegression {
-    @JvmStatic fun main(args: Array<String>) {
-        verifySpectrumEnvelope()
-    }
-}

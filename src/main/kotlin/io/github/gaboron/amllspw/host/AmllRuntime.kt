@@ -9,6 +9,7 @@ import io.github.gaboron.amllspw.interop.TrackIdentity
 import io.github.gaboron.amllspw.interop.localMediaPath
 import io.github.gaboron.amllspw.interop.TtmlInbox
 import io.github.gaboron.amllspw.interop.FooterInbox
+import io.github.gaboron.amllspw.interop.PlaybackIdentity
 import io.github.gaboron.amllspw.ui.LyricsPresentation
 import io.github.gaboron.amllspw.poetry.PoetryCatalog
 import io.github.gaboron.amllspw.poetry.TrackPoems
@@ -48,7 +49,8 @@ internal class AmllRuntime : AutoCloseable {
     private val languageReader = AudioLanguageReader()
     private var audioLanguages: List<String> = emptyList()
     private val inbox = TtmlInbox()
-    private val footerInbox = FooterInbox(::currentIdentity)
+    private val footerInbox = FooterInbox(::currentFooterIdentity)
+    val footerReceiver = FooterReceiver(footerInbox, { isActive }, { enqueue(::refreshFooter) })
     private val poems by lazy { TrackPoems(PoetryCatalog.load()) }
     private var localDocument: LyricDocument? = null
     @Volatile private var closed = false
@@ -189,27 +191,22 @@ internal class AmllRuntime : AutoCloseable {
         return accepted && !closed
     }
 
-    fun receiveFooter(providerId: String?, providerName: String?, track: TrackIdentity,
-        keys: Array<out String?>?, values: Array<out String?>?): Boolean {
-        if (!isActive) return false
-        val accepted = footerInbox.submit(providerId, providerName, track, keys, values)
-        if (accepted) enqueue(::refreshFooter)
-        return accepted && !closed
-    }
-
-    fun clearFooter(providerId: String?, track: TrackIdentity): Boolean {
-        if (!isActive) return false
-        val cleared = footerInbox.clear(providerId, track)
-        if (cleared) enqueue(::refreshFooter)
-        return cleared && !closed
-    }
-
     private fun refreshFooter() {
-        val track = currentIdentity() ?: return
+        val media = selectedMedia ?: return
         val current = mutablePresentation.value
-        if (current.trackKey == "${track.id}|${track.path}")
-            mutablePresentation.value = current.copy(footer = footerInbox.current(track))
+        if (current.trackKey != mediaKey(media)) return
+        val footer = footerInbox.current(footerIdentityFor(media))
+        if (!closed && current.footer != footer) mutablePresentation.compareAndSet(current, current.copy(footer = footer))
     }
+
+    private fun currentFooterIdentity(): PlaybackIdentity? = runCatching {
+        if (closed) return null
+        external.snapshot()?.identity ?: hostMediaItem()?.let { PlaybackIdentity.Host(hostIdentityFor(it)) }
+    }.getOrNull()
+
+    private fun footerIdentityFor(media: PlaybackExtensionPoint.MediaItem): PlaybackIdentity =
+        externalTrack?.identity ?: PlaybackIdentity.Host(hostIdentityFor(media))
+
     private fun currentIdentity(): TrackIdentity? = runCatching {
         if (closed) null else currentMediaItem()?.let(::identityFor)
     }.getOrNull()
@@ -226,7 +223,7 @@ internal class AmllRuntime : AutoCloseable {
             if (languages != audioLanguages) {
                 audioLanguages = languages
                 refreshDocument(media)
-            }
+            } else refreshFooter()
             return
         }
         audioLanguages = languages
@@ -246,7 +243,7 @@ internal class AmllRuntime : AutoCloseable {
             palette = colors?.palette ?: previous.palette,
             lyricColor = colors?.lyric ?: if (ready) 0xffffffff.toInt() else previous.lyricColor, loading = true,
             lyricGlowColor = colors?.glow ?: if (ready) 0xffffffff.toInt() else previous.lyricGlowColor,
-            footer = footerInbox.current(identityFor(media)))
+            footer = footerInbox.current(footerIdentityFor(media)))
         artwork.thenAccept { loaded -> enqueue { applyCover(media, next, artworkKey, loaded) } }
         localDocument = audio?.let { runCatching { local.readTtml(it) }.getOrNull() }
         if (closed) return
@@ -287,20 +284,25 @@ internal class AmllRuntime : AutoCloseable {
         val offset = remoteLyrics?.offsetMs ?: if (native != null && native === received?.document) received.offsetMs else 0
         if (!closed && currentIdentity()?.matches(identityFor(media)) == true) {
             val next = mutablePresentation.value.copy(document = document, offsetMs = offset,
-                footer = footerInbox.current(identityFor(media)),
+                footer = footerInbox.current(footerIdentityFor(media)),
                 loading = document.lines.isEmpty() && mutablePresentation.value.loading && !hostUpdated)
             mutablePresentation.value = next.copy(poem = if (next.isInstrumental) poems.forTrack(key) else null)
         }
     }
     private fun currentMediaItem(): PlaybackExtensionPoint.MediaItem? = externalTrack?.let {
         PlaybackExtensionPoint.MediaItem(it.title, it.artist, it.album, "", "", id = it.uri, duration = it.durationMs)
-    } ?: WorkshopApi.playback.getCurrentMediaItem()?.takeIf {
+    } ?: hostMediaItem()
+
+    private fun hostMediaItem(): PlaybackExtensionPoint.MediaItem? = WorkshopApi.playback.getCurrentMediaItem()?.takeIf {
         it.id.isNotBlank() || it.path.isNotBlank() || it.title.isNotBlank() || it.artist.isNotBlank() || it.album.isNotBlank()
     }
 
     private fun identityFor(media: PlaybackExtensionPoint.MediaItem): TrackIdentity = externalTrack
-        ?.takeIf { it.uri == media.id }?.let { TrackIdentity("external:${it.identity}", "") }
-        ?: TrackIdentity(media.id.ifBlank {
+        ?.takeIf { it.uri == media.id }?.let { TrackIdentity(it.trackId, "") }
+        ?: hostIdentityFor(media)
+
+    private fun hostIdentityFor(media: PlaybackExtensionPoint.MediaItem): TrackIdentity =
+        TrackIdentity(media.id.ifBlank {
             if (media.path.isNotBlank()) "" else "host:" +
                 listOf(media.title, media.artist, media.album, media.duration.toString())
                     .joinToString("") { "${it.length}:$it" }
