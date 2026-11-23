@@ -200,11 +200,7 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
                 val buffering = !presentation.externalPlayback && runCatching { actions?.buffering() == true }.getOrDefault(false)
                 if (buffering) sample.copy(playing = null) else sample
             },
-            onSeek = { position ->
-                runCatching { runtime.seekTo(presentation.trackKey, position) }.onFailure {
-                    WorkshopApi.ui.toast("播放跳转失败：${it.message}", WorkshopApi.Ui.ToastType.Warning)
-                }
-            },
+            onSeek = { position -> runtime.seekTo(presentation.trackKey, position) },
             onTransport = { runtime.transport(presentation.trackKey, it) },
             readVolume = {
                 if (presentation.externalPlayback) runtime.externalVolume(presentation.trackKey)

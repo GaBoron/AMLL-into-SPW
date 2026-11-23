@@ -21,12 +21,18 @@ import io.github.gaboron.amllspw.romanization.KoreanAnnotations
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 /** Serial ownership of track selection and lyric IO; UI reads immutable presentations. */
 internal class AmllRuntime : AutoCloseable {
     val preferences = AmllPreferences()
     private val worker = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "amll-lyrics-io").apply { isDaemon = true } }
+    private val seekWorker = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "amll-playback-seek").apply { isDaemon = true }
+    }
+    private val seekRequest = AtomicLong()
     private val mutablePresentation = MutableStateFlow(LyricsPresentation())
     val presentation = mutablePresentation.asStateFlow()
     val clock = PlaybackClock()
@@ -120,8 +126,28 @@ internal class AmllRuntime : AutoCloseable {
             currentIdentity()?.let { clock.playing("${it.id}|${it.path}", playing) }
     }
     fun seekTo(trackKey: String, position: Long) {
+        if (closed || trackKey.isEmpty() || presentation.value.trackKey != trackKey) return
+        val request = seekRequest.incrementAndGet()
+        try {
+            seekWorker.execute {
+                // A native seek can wait for the audio engine. Keep it off the UI thread
+                // and skip queued clicks superseded by a newer target.
+                if (!closed && request == seekRequest.get()) {
+                    runCatching { seekCurrent(trackKey, position) }.onFailure { error ->
+                        runCatching {
+                            WorkshopApi.ui.toast("播放跳转失败：${error.message}", WorkshopApi.Ui.ToastType.Warning)
+                        }
+                    }
+                }
+            }
+        } catch (_: RejectedExecutionException) {
+            // Plugin shutdown can race with a final UI event.
+        }
+    }
+
+    private fun seekCurrent(trackKey: String, position: Long) {
         val current = currentIdentity() ?: return
-        if (trackKey.isEmpty() || trackKey != "${current.id}|${current.path}" || presentation.value.trackKey != trackKey) return
+        if (trackKey != "${current.id}|${current.path}" || presentation.value.trackKey != trackKey) return
         val target = position.coerceAtLeast(0)
         clock.expectSeek(trackKey, target)
         try {
@@ -353,7 +379,8 @@ internal class AmllRuntime : AutoCloseable {
         closed = true
         preferences.onAnnotationChange = null
         mutablePresentation.value = LyricsPresentation()
-        closePluginResources(AutoCloseable { worker.shutdownNow() }, externalArtwork, covers,
+        closePluginResources(AutoCloseable { seekWorker.shutdownNow() }, AutoCloseable { worker.shutdownNow() },
+            externalArtwork, covers,
             AutoCloseable { inbox.close() }, AutoCloseable { footerInbox.close() }, preferences)
     }
 }
