@@ -39,6 +39,7 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
     readMode: () -> String? = { null }, onMode: (String) -> Unit = {},
     pageMenu: (@Composable (Float) -> Unit)? = null, pageExpanded: Boolean = true,
     readSpectrum: () -> SpectrumFrame? = { null }, onSpectrumActive: () -> Unit = {}, onSpectrumIdle: () -> Unit = {},
+    cornerControls: (@Composable (Float) -> Unit)? = null,
     lyrics: @Composable () -> Unit) {
     val spectrum = rememberPlayerSpectrum(readSpectrum, onSpectrumActive, onSpectrumIdle)
     val glassPopups = remember { PlayerGlassPopups() }
@@ -127,6 +128,11 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
                                 scaleX = .97f + .03f * lyricVisibility
                                 scaleY = scaleX
                             }) { lyrics() }
+                    }
+                }
+                if (cornerControls != null) {
+                    Box(Modifier.align(Alignment.BottomEnd).padding(end = (style.em * 2).dp, bottom = 16.dp).zIndex(2f)) {
+                        cornerControls(40f)
                     }
                 }
             }

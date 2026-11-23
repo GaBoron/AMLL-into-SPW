@@ -1,12 +1,14 @@
 package io.github.gaboron.amllspw.host
 
 import com.xuncorp.spw.workshop.api.WorkshopApi
+import io.github.gaboron.amllspw.interop.TrackMixClient
 import io.github.gaboron.amllspw.spectrum.SpectrumFrame
 import java.io.File
 import java.lang.reflect.Modifier
 
-/** An owned decode-only stream analyzes the track before the host's volume DSP, including while muted. */
-internal class NativePlayerSpectrum(loader: ClassLoader = WorkshopApi::class.java.classLoader) : AutoCloseable {
+/** Reads the current mix upstream of host volume, or analyzes the original with a decode-only stream. */
+internal class NativePlayerSpectrum(loader: ClassLoader = WorkshopApi::class.java.classLoader,
+    private val trackMix: TrackMixClient = TrackMixClient()) : AutoCloseable {
     private val controller = Class.forName("com.xuncorp.voxzen.service.PlaybackController", false, loader)
     private val serviceType = Class.forName("com.xuncorp.voxzen.service.PlaybackService", false, loader)
     private val playerType = Class.forName("com.xuncorp.pisces.PiscesPlayer", false, loader)
@@ -17,7 +19,11 @@ internal class NativePlayerSpectrum(loader: ClassLoader = WorkshopApi::class.jav
     private val item = playerType.methods.single { it.parameterCount == 0 && it.returnType == itemType }
     // This is the path getter used by the host's BassImpl stream factory.
     private val path = itemType.getMethod("\u052c").also { require(it.returnType == String::class.java) }
-    private val decoder = NativeSpectrumDecoder(loader)
+    private val decoder = lazy {
+        runCatching { NativeSpectrumDecoder(loader) }.onFailure {
+            System.err.println("AMLL: 原曲频谱解码不可用：" + (it.cause ?: it))
+        }.getOrNull()
+    }
     private var closed = false
     private var viewers = 0
 
@@ -29,16 +35,24 @@ internal class NativePlayerSpectrum(loader: ClassLoader = WorkshopApi::class.jav
         if (closed || viewers == 0) return null
         val current = player.invoke(service.get(null)) ?: return pause().let { null }
         val media = item.invoke(current) ?: return pause().let { null }
-        return decoder.read(path.invoke(media) as String, positionMs.coerceAtLeast(0))
+        val source = path.invoke(media) as String
+        val position = positionMs.coerceAtLeast(0)
+        trackMix.spectrum(source, position)?.let {
+            pause()
+            return it
+        }
+        return decoder.value?.read(source, position)
     }
 
     @Synchronized
-    fun pause() = decoder.release()
+    fun pause() {
+        if (decoder.isInitialized()) decoder.value?.release()
+    }
 
     @Synchronized
     fun idle() {
         viewers = (viewers - 1).coerceAtLeast(0)
-        if (viewers == 0) decoder.release()
+        if (viewers == 0) pause()
     }
 
     @Synchronized
@@ -46,7 +60,7 @@ internal class NativePlayerSpectrum(loader: ClassLoader = WorkshopApi::class.jav
         if (closed) return
         closed = true
         viewers = 0
-        decoder.close()
+        if (decoder.isInitialized()) decoder.value?.close()
     }
 }
 

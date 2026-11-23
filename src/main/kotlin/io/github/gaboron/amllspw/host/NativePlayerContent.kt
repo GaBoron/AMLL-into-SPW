@@ -8,7 +8,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import com.xuncorp.spw.workshop.api.WorkshopApi
 import com.xuncorp.spw.workshop.api.hook.HookHandle
 import com.xuncorp.spw.workshop.api.UnstableSpwWorkshopApi
+import io.github.gaboron.amllspw.interop.RebuiltPlayerBridge
+import io.github.gaboron.amllspw.interop.TrackMixClient
 import io.github.gaboron.amllspw.ui.PlayerPage
+import io.github.gaboron.amllspw.ui.PlayerTrackMixButton
 import io.github.gaboron.amllspw.ui.PlayerMediaButton
 import io.github.gaboron.amllspw.ui.LocalPlayerGlassDark
 import java.lang.invoke.MethodType
@@ -42,7 +45,8 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
     private val sheetBottom = method(target.sheetBottom)
     private val sheetProgress = method(target.sheetProgress)
     private val actions = runCatching { NativePlayerActions(loader) }.getOrNull()
-    private val spectrum = runCatching { NativePlayerSpectrum(loader) }.onFailure {
+    private val trackMix = TrackMixClient()
+    private val spectrum = runCatching { NativePlayerSpectrum(loader, trackMix) }.onFailure {
         System.err.println("AMLL: 播放频谱不可用：${it.message}")
     }.getOrNull()
     private val handles = mutableListOf<HookHandle>()
@@ -51,6 +55,7 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
     private var rebuildPage by mutableStateOf(false)
     private var sheetState: Any? by mutableStateOf(null)
     private var preferenceCollection: Job? = null
+    private var pageBridge: RebuiltPlayerBridge? = null
 
     /** Enable the page and its surrounding layers together, after every hook is installed. */
     fun install(runtime: AmllRuntime) {
@@ -82,6 +87,9 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
             Content(runtime, call.arguments)
         }
         ready = true
+        pageBridge = runCatching { RebuiltPlayerBridge(active = { rebuilding(runtime) }) }.onFailure {
+            System.err.println("AMLL: 播放页联动接口不可用：" + it.message)
+        }.getOrNull()
     }
 
     override fun close() {
@@ -91,7 +99,9 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
         sheetState = null
         val old = handles.asReversed().toTypedArray()
         handles.clear()
-        closePluginResources(*old, spectrum)
+        val bridge = pageBridge
+        pageBridge = null
+        closePluginResources(bridge, *old, spectrum)
     }
 
     private fun rebuilding(runtime: AmllRuntime): Boolean = ready && runtime.isActive && rebuildPage
@@ -214,6 +224,10 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
                 if (popup != null) popup.Button("播放列表", "queue", side, iconSize,
                     presentation.trackKey.isNotBlank() && !presentation.externalPlayback, options.reducedMotion)
                 else PlayerMediaButton("播放列表", "queue", side, iconSize, enabled = false) {}
+            },
+            cornerControls = { size ->
+                PlayerTrackMixButton(trackMix, size, presentation.trackKey.isNotBlank() && !presentation.externalPlayback,
+                    options.reducedMotion)
             },
             lyrics = { NativeLyricsContent(runtime, Modifier.fillMaxSize(), true) })
     }
