@@ -13,6 +13,8 @@ internal class RebuiltPlayerBridge(active: () -> Boolean,
     init {
         val endpoint = object : RebuiltPlayerMBean {
             override fun isActive() = active()
+            override fun getPanelApiVersion() = 1
+            override fun getSpectrumApiVersion() = 1
         }
         server.registerMBean(StandardMBean(endpoint, RebuiltPlayerMBean::class.java, false), NAME)
         registered = true
@@ -26,10 +28,12 @@ internal class RebuiltPlayerBridge(active: () -> Boolean,
     }
 
     companion object {
-        private val NAME = ObjectName("io.github.gaboron.amllspw:type=RebuiltPlayer,version=1")
+        private val NAME = ObjectName("io.github.gaboron.amllspw:type=RebuiltPlayer,version=2")
     }
 }
 
 interface RebuiltPlayerMBean {
     fun isActive(): Boolean
+    fun getPanelApiVersion(): Int
+    fun getSpectrumApiVersion(): Int
 }

@@ -1,14 +1,14 @@
 package io.github.gaboron.amllspw.host
 
 import com.xuncorp.spw.workshop.api.WorkshopApi
-import io.github.gaboron.amllspw.interop.TrackMixClient
+import io.github.gaboron.amllspw.interop.PlayerExtensionClient
 import io.github.gaboron.amllspw.spectrum.SpectrumFrame
 import java.io.File
 import java.lang.reflect.Modifier
 
-/** Reads the current mix upstream of host volume, or analyzes the original with a decode-only stream. */
+/** Reads a registered spectrum source or analyzes the original with a decode-only stream. */
 internal class NativePlayerSpectrum(loader: ClassLoader = WorkshopApi::class.java.classLoader,
-    private val trackMix: TrackMixClient = TrackMixClient()) : AutoCloseable {
+    private val extensions: PlayerExtensionClient = PlayerExtensionClient()) : AutoCloseable {
     private val controller = Class.forName("com.xuncorp.voxzen.service.PlaybackController", false, loader)
     private val serviceType = Class.forName("com.xuncorp.voxzen.service.PlaybackService", false, loader)
     private val playerType = Class.forName("com.xuncorp.pisces.PiscesPlayer", false, loader)
@@ -37,7 +37,7 @@ internal class NativePlayerSpectrum(loader: ClassLoader = WorkshopApi::class.jav
         val media = item.invoke(current) ?: return pause().let { null }
         val source = path.invoke(media) as String
         val position = positionMs.coerceAtLeast(0)
-        trackMix.spectrum(source, position)?.let {
+        extensions.spectrum(source, position)?.let {
             pause()
             return it
         }

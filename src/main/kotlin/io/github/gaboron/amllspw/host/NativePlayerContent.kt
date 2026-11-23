@@ -9,9 +9,9 @@ import com.xuncorp.spw.workshop.api.WorkshopApi
 import com.xuncorp.spw.workshop.api.hook.HookHandle
 import com.xuncorp.spw.workshop.api.UnstableSpwWorkshopApi
 import io.github.gaboron.amllspw.interop.RebuiltPlayerBridge
-import io.github.gaboron.amllspw.interop.TrackMixClient
+import io.github.gaboron.amllspw.interop.PlayerExtensionClient
 import io.github.gaboron.amllspw.ui.PlayerPage
-import io.github.gaboron.amllspw.ui.PlayerTrackMixButton
+import io.github.gaboron.amllspw.ui.PlayerExtensionButtons
 import io.github.gaboron.amllspw.ui.PlayerMediaButton
 import io.github.gaboron.amllspw.ui.LocalPlayerGlassDark
 import java.lang.invoke.MethodType
@@ -45,8 +45,8 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
     private val sheetBottom = method(target.sheetBottom)
     private val sheetProgress = method(target.sheetProgress)
     private val actions = runCatching { NativePlayerActions(loader) }.getOrNull()
-    private val trackMix = TrackMixClient()
-    private val spectrum = runCatching { NativePlayerSpectrum(loader, trackMix) }.onFailure {
+    private val extensions = PlayerExtensionClient()
+    private val spectrum = runCatching { NativePlayerSpectrum(loader, extensions) }.onFailure {
         System.err.println("AMLL: 播放频谱不可用：${it.message}")
     }.getOrNull()
     private val handles = mutableListOf<HookHandle>()
@@ -222,8 +222,10 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
                 else PlayerMediaButton("播放列表", "queue", side, iconSize, enabled = false) {}
             },
             cornerControls = { size ->
-                val localTrack = presentation.trackKey.takeIf { it.isNotBlank() && !presentation.externalPlayback }
-                PlayerTrackMixButton(trackMix, size, localTrack, options.reducedMotion)
+                val localTrack = presentation.trackKey.takeIf { !presentation.externalPlayback }.orEmpty()
+                val context = PlayerExtensionClient.Context(localTrack.substringBeforeLast('|', ""),
+                    localTrack.substringAfterLast('|', ""))
+                PlayerExtensionButtons(extensions, size, context, options.reducedMotion)
             },
             lyrics = { NativeLyricsContent(runtime, Modifier.fillMaxSize(), true) })
     }

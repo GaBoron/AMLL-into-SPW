@@ -145,6 +145,13 @@ internal fun playerTime(milliseconds: Long): String {
 @Composable
 internal fun PlayerMediaButton(label: String, icon: String, side: Float, iconSize: Float,
     enabled: Boolean = true, reducedMotion: Boolean = false, onClick: () -> Unit) {
+    PlayerMediaButtonContent(label, side, iconSize, enabled, reducedMotion,
+        icon = { modifier, alpha -> PlayerIcon(icon, label, modifier, alpha) }, onClick = onClick)
+}
+
+@Composable
+internal fun PlayerMediaButtonContent(label: String, side: Float, iconSize: Float, enabled: Boolean, reducedMotion: Boolean,
+    icon: @Composable (Modifier, Float) -> Unit, onClick: () -> Unit) {
     val interactions = remember { MutableInteractionSource() }
     val hovered by interactions.collectIsHoveredAsState()
     val pressed by interactions.collectIsPressedAsState()
@@ -154,6 +161,6 @@ internal fun PlayerMediaButton(label: String, icon: String, side: Float, iconSiz
         .background(if (hovered || pressed) color.copy(alpha = .133f) else Color.Transparent)
         .hoverable(interactions, enabled).clickable(interactionSource = interactions, indication = null,
             enabled = enabled, role = Role.Button, onClickLabel = label, onClick = onClick), contentAlignment = Alignment.Center) {
-        PlayerIcon(icon, label, Modifier.size(iconSize.dp).graphicsLayer { scaleX = scale; scaleY = scale }, if (enabled) 1f else .25f)
+        icon(Modifier.size(iconSize.dp).graphicsLayer { scaleX = scale; scaleY = scale }, if (enabled) 1f else .25f)
     }
 }
