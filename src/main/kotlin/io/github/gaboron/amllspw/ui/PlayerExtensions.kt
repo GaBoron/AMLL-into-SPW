@@ -121,11 +121,13 @@ private fun ExtensionPanel(client: PlayerExtensionClient, panel: PlayerExtension
 
     val color = if (LocalPlayerGlassDark.current) Color.White else Color(0xff202020)
     CompositionLocalProvider(LocalPlayerColor provides color) {
-        PlayerGlassMenu {
-            key(context) {
-                ExtensionControls(controls.orEmpty(), color, reducedMotion) { action, value ->
-                    client.action(panel, session, context, action, value)
-                    refresh()
+        key(controls?.firstOrNull()?.text("scrollKey")) {
+            PlayerGlassMenu {
+                key(context) {
+                    ExtensionControls(controls.orEmpty(), color, reducedMotion) { action, value ->
+                        client.action(panel, session, context, action, value)
+                        refresh()
+                    }
                 }
             }
         }
@@ -171,10 +173,13 @@ private fun ExtensionControl(control: Control, color: Color, reducedMotion: Bool
         "button" -> {
             val selected = control.flag("selected")
             val click = { onAction(action, 0) }
-            if (control.text("style") == "chip") {
-                ExtensionChip(label, selected, enabled, color, reducedMotion, click)
-            } else {
-                PlayerGlassMenuItem(enabled = enabled, onClick = click) { PlayerGlassMenuText(label, enabled) }
+            val svg = control.text("svg")
+            when {
+                svg.isNotBlank() -> PlayerMediaButtonContent(label, 32f, 18f, enabled, reducedMotion, icon = { icon, alpha ->
+                    ExtensionIcon(svg, label, icon, alpha)
+                }, onClick = click)
+                control.text("style") == "chip" -> ExtensionChip(label, selected, enabled, color, reducedMotion, click)
+                else -> PlayerGlassMenuItem(enabled = enabled, onClick = click) { PlayerGlassMenuText(label, enabled) }
             }
         }
         "slider" -> ExtensionSlider(control, sizing, color, enabled, reducedMotion, onAction)
