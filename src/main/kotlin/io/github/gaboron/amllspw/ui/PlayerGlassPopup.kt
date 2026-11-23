@@ -45,6 +45,7 @@ internal class PlayerGlassPopupEntry(val label: String, val dismiss: () -> Unit)
     var source: (@Composable () -> Unit)? = null
     var sourceHidden by mutableStateOf(false)
     var atPointer: Boolean = false
+    var keepOnTrackChange: Boolean = false
     var width: Dp = 280.dp
 }
 
@@ -63,6 +64,10 @@ internal class PlayerGlassPopups {
     }
 
     fun dismiss() { entries.toList().forEach { it.dismiss() } }
+
+    fun dismissForTrackChange() {
+        entries.filterNot { it.keepOnTrackChange }.forEach { it.dismiss() }
+    }
 
     fun finished(entry: PlayerGlassPopupEntry) {
         entry.sourceHidden = false

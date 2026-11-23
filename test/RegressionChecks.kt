@@ -7,5 +7,6 @@ object RegressionChecks {
         verifyFooterProtocol()
         verifyConcurrentFooterUpdate()
         verifyHostLyricsAvailability()
+        verifyTrackMixQueueProtocol()
     }
 }

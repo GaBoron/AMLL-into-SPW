@@ -44,7 +44,8 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
     val spectrum = rememberPlayerSpectrum(readSpectrum, onSpectrumActive, onSpectrumIdle)
     val glassPopups = remember { PlayerGlassPopups() }
     val backdrop = rememberLayerBackdrop()
-    LaunchedEffect(pageExpanded, presentation.trackKey) { glassPopups.dismiss() }
+    LaunchedEffect(pageExpanded) { glassPopups.dismiss() }
+    LaunchedEffect(presentation.trackKey) { glassPopups.dismissForTrackChange() }
     DisposableEffect(glassPopups) { onDispose { glassPopups.dismiss() } }
     var hiddenLyrics by remember { mutableStateOf(false) }
     val transportState = remember { PlayerTransportState() }

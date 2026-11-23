@@ -23,8 +23,10 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +42,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.roundToIntRect
 import androidx.compose.ui.unit.sp
+import io.github.gaboron.amllspw.interop.TrackIdentity
 import io.github.gaboron.amllspw.interop.TrackMixClient
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
@@ -49,7 +52,7 @@ private val PresetLabels = listOf("原曲", "纯伴奏", "仅人声", "自定义
 private const val MixTransitionMs = 180
 
 @Composable
-internal fun PlayerTrackMixButton(client: TrackMixClient, side: Float, enabled: Boolean, reducedMotion: Boolean) {
+internal fun PlayerTrackMixButton(client: TrackMixClient, side: Float, trackKey: String?, reducedMotion: Boolean) {
     val host = LocalPlayerGlassPopups.current ?: return
     var available by remember(client) { mutableStateOf(client.available()) }
     LaunchedEffect(client) {
@@ -65,19 +68,19 @@ internal fun PlayerTrackMixButton(client: TrackMixClient, side: Float, enabled: 
         popup = PlayerGlassPopupEntry("六轨混音") { popup.expanded = false }
         popup
     }
+    val localTrack by rememberUpdatedState(trackKey)
+    val motionReduced by rememberUpdatedState(reducedMotion)
     val iconSize = side * .60f
     SideEffect {
         entry.width = 340.dp
+        entry.keepOnTrackChange = true
         entry.source = { PlayerIcon("icon_stems", null, Modifier.size(iconSize.dp)) }
     }
-    DisposableEffect(entry, enabled) {
-        if (!enabled) entry.dismiss()
-        onDispose { entry.dismiss() }
-    }
+    DisposableEffect(entry) { onDispose { entry.dismiss() } }
     Box(Modifier.onGloballyPositioned { entry.anchor = it.boundsInWindow().roundToIntRect() }
         .graphicsLayer { alpha = if (entry.sourceHidden) 0f else 1f }) {
-        PlayerMediaButton("六轨混音", "icon_stems", side, iconSize, enabled, reducedMotion) {
-            entry.content = { TrackMixPanel(client, reducedMotion, entry.dismiss) }
+        PlayerMediaButton("六轨混音", "icon_stems", side, iconSize, reducedMotion = reducedMotion) {
+            entry.content = { TrackMixPanel(client, localTrack, motionReduced, entry.dismiss) }
             entry.expanded = true
             host.show(entry)
         }
@@ -85,9 +88,10 @@ internal fun PlayerTrackMixButton(client: TrackMixClient, side: Float, enabled: 
 }
 
 @Composable
-private fun TrackMixPanel(client: TrackMixClient, reducedMotion: Boolean, dismiss: () -> Unit) {
+private fun TrackMixPanel(client: TrackMixClient, trackKey: String?, reducedMotion: Boolean, dismiss: () -> Unit) {
     var state by remember(client) { mutableStateOf(client.snapshot()) }
-    LaunchedEffect(client) {
+    var showSettings by remember { mutableStateOf(false) }
+    LaunchedEffect(client, trackKey) {
         while (true) {
             val update = client.snapshot()
             if (update == null) {
@@ -99,40 +103,59 @@ private fun TrackMixPanel(client: TrackMixClient, reducedMotion: Boolean, dismis
         }
     }
     val current = state ?: return
+    val displayTrack = trackKey?.takeIf { key ->
+        current.identity?.matches(TrackIdentity(key.substringBeforeLast('|'), key.substringAfterLast('|'))) != false
+    }
     val color = if (LocalPlayerGlassDark.current) Color.White else Color(0xff202020)
     val edit = { action: String, lane: Int, value: Int ->
         client.command(action, lane, value)
         state = client.snapshot()
     }
     PlayerGlassMenu {
+        val settings = current.settings
+        if (showSettings && settings != null) {
+            TrackMixSettings(settings, current.jobs.isEmpty(), displayTrack, color, reducedMotion,
+                back = { showSettings = false },
+                save = { limit, quality, cpu, fp16 ->
+                    client.configure(limit, quality, cpu, fp16)
+                    state = client.snapshot()
+                    showSettings = false
+                },
+                manage = { command -> edit(command, 0, 0) })
+            SeparationQueue(current.jobs, current.jobNotice, color, reducedMotion) { edit("cancel", 0, it) }
+            return@PlayerGlassMenu
+        }
         Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             MixText("六轨混音", color, 17, FontWeight.SemiBold)
-            if (current.title.isNotBlank()) MixText(current.title, color.copy(alpha = .62f), 13, maxLines = 1)
+            if (displayTrack != null && current.title.isNotBlank()) {
+                MixText(current.title, color.copy(alpha = .62f), 13, maxLines = 1)
+            }
             val description = when {
-                current.busy -> jobDescription(current)
+                trackKey == null -> "请播放本地立体声歌曲"
+                displayTrack == null -> "正在切换曲目"
                 current.notice.isNotBlank() -> current.notice
+                current.quickCached && current.ready -> if (current.original) "快速分离已缓存 · 原曲直通" else "快速分离 · 实时混音"
                 current.ready && current.original -> "原曲直通"
                 current.ready -> "实时混音"
                 current.cached -> "重新打开歌曲以接入混音"
+                current.currentQueued -> "已加入分离队列"
                 current.title.isBlank() -> "请播放本地立体声歌曲"
                 else -> "这首歌尚未分离"
             }
             MixText(description, color.copy(alpha = .70f), 13, maxLines = 2)
-            if (current.busy) {
-                Box(Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp))
-                    .background(color.copy(alpha = .13f))) {
-                    Box(Modifier.fillMaxWidth(current.progress.toFloat().coerceIn(0f, 1f)).height(3.dp)
-                        .background(color.copy(alpha = .75f)))
-                }
-            }
         }
 
-        if (current.busy || current.canSeparate) {
-            PlayerGlassMenuItem(onClick = { edit(if (current.busy) "cancel" else "separate", 0, 0) }) {
-                PlayerGlassMenuText(if (current.busy) "取消分离" else "分离六轨")
-            }
+        if (displayTrack != null && current.canSeparate) {
+            PlayerGlassMenuItem(onClick = { edit("separate", 0, 0) }) { PlayerGlassMenuText("标准分离") }
         }
-        if (current.ready) {
+        if (displayTrack != null && current.canQuick) {
+            PlayerGlassMenuItem(onClick = { edit("quick", 0, 0) }) { PlayerGlassMenuText("快速分离") }
+        }
+        if (settings != null) {
+            PlayerGlassMenuItem(onClick = { showSettings = true }) { PlayerGlassMenuText("模型和缓存") }
+        }
+        SeparationQueue(current.jobs, current.jobNotice, color, reducedMotion) { edit("cancel", 0, it) }
+        if (displayTrack != null && current.ready) key(trackKey) {
             PlayerGlassMenuDivider()
             FlowRow(Modifier.padding(horizontal = 10.dp), horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -175,30 +198,77 @@ private fun TrackMixPanel(client: TrackMixClient, reducedMotion: Boolean, dismis
 }
 
 @Composable
-private fun MixChip(label: String, active: Boolean, color: Color, reducedMotion: Boolean, click: () -> Unit) {
+internal fun MixChip(label: String, active: Boolean, color: Color, reducedMotion: Boolean,
+    enabled: Boolean = true, click: () -> Unit) {
     val selectedTint by animateFloatAsState(if (active) 1f else 0f,
         if (reducedMotion) snap() else tween(MixTransitionMs))
     Box(Modifier.clip(RoundedCornerShape(8.dp)).background(color.copy(alpha = .06f + .12f * selectedTint))
-        .selectable(active, role = Role.Button, onClick = click).padding(horizontal = 7.dp, vertical = 5.dp)) {
-        MixText(label, color.copy(alpha = .72f + .28f * selectedTint), 12)
+        .selectable(active, enabled = enabled, role = Role.Button, onClick = click).padding(horizontal = 7.dp, vertical = 5.dp)) {
+        MixText(label, color.copy(alpha = if (enabled) .72f + .28f * selectedTint else .42f), 12)
     }
 }
 
 @Composable
-private fun MixText(text: String, color: Color, size: Int, weight: FontWeight = FontWeight.Normal,
+internal fun MixText(text: String, color: Color, size: Int, weight: FontWeight = FontWeight.Normal,
     maxLines: Int = 1, modifier: Modifier = Modifier) {
     BasicText(text, modifier, style = TextStyle(color = color, fontSize = size.sp, fontWeight = weight),
         maxLines = maxLines, overflow = TextOverflow.Ellipsis)
 }
 
-private fun jobDescription(state: TrackMixClient.Snapshot): String {
-    val stage = when (state.stage) {
+@Composable
+private fun SeparationQueue(jobs: List<TrackMixClient.Job>, notice: String, color: Color, reducedMotion: Boolean,
+    cancel: (Int) -> Unit) {
+    if (jobs.isNotEmpty()) {
+        PlayerGlassMenuDivider()
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 5.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            MixText("后台任务", color, 14, FontWeight.SemiBold)
+            jobs.forEachIndexed { index, job -> key(job.id) {
+                val kind = when (job.kind) {
+                    "QUICK" -> "快速分离"
+                    "MAINTENANCE" -> "模型和缓存"
+                    else -> "标准分离"
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        MixText(job.title, color, 13)
+                        val progress = when {
+                            job.cancelling -> "正在取消"
+                            !job.running -> "排队 · 第 $index 位"
+                            else -> jobDescription(job)
+                        }
+                        MixText("$kind · $progress", color.copy(alpha = .68f), 12)
+                    }
+                    MixChip("取消", false, color, reducedMotion, enabled = !job.cancelling) { cancel(job.id) }
+                }
+                val progress = (if (job.running) job.progress else 0.0).toFloat().coerceIn(0f, 1f)
+                val displayed by animateFloatAsState(progress, if (reducedMotion) snap() else tween(MixTransitionMs))
+                Box(Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp))
+                    .background(color.copy(alpha = .13f))) {
+                    Box(Modifier.fillMaxWidth(displayed).height(3.dp).background(color.copy(alpha = .75f)))
+                }
+            } }
+        }
+    }
+    if (notice.isNotBlank()) {
+        MixText(notice, color.copy(alpha = .68f), 12, maxLines = 3,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+    }
+}
+
+private fun jobDescription(job: TrackMixClient.Job): String {
+    val stage = when (job.stage) {
+        "" -> "准备开始"
         "runtime" -> "准备推理环境"
         "download" -> "下载模型"
-        "verify", "load" -> "载入模型"
+        "verify" -> "校验模型"
+        "load" -> "载入模型"
         "decode" -> "解码原曲"
+        "gpu16" -> "CUDA FP16"
+        "gpu32" -> "CUDA FP32"
+        "cpu" -> "CPU 分离"
+        "fallback" -> "切换推理设备或精度"
         "cache", "finish", "done" -> "写入音轨缓存"
-        else -> "分离音轨"
+        else -> "正在处理"
     }
-    return if (state.progress in 0.001..0.999) "$stage ${(100 * state.progress).roundToInt()}%" else stage
+    return if (job.progress in 0.001..0.999) "$stage ${(100 * job.progress).roundToInt()}%" else stage
 }

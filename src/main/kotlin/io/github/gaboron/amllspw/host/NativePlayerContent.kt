@@ -222,8 +222,8 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
                 else PlayerMediaButton("播放列表", "queue", side, iconSize, enabled = false) {}
             },
             cornerControls = { size ->
-                PlayerTrackMixButton(trackMix, size, presentation.trackKey.isNotBlank() && !presentation.externalPlayback,
-                    options.reducedMotion)
+                val localTrack = presentation.trackKey.takeIf { it.isNotBlank() && !presentation.externalPlayback }
+                PlayerTrackMixButton(trackMix, size, localTrack, options.reducedMotion)
             },
             lyrics = { NativeLyricsContent(runtime, Modifier.fillMaxSize(), true) })
     }
