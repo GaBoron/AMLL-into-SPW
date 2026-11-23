@@ -1,5 +1,8 @@
 package io.github.gaboron.amllspw.ui
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -43,6 +46,7 @@ import kotlin.math.roundToInt
 
 private val TrackLabels = listOf("人声", "鼓组", "贝斯", "吉他", "钢琴", "其他")
 private val PresetLabels = listOf("原曲", "纯伴奏", "仅人声", "自定义")
+private const val MixTransitionMs = 180
 
 @Composable
 internal fun PlayerTrackMixButton(client: TrackMixClient, side: Float, enabled: Boolean, reducedMotion: Boolean) {
@@ -133,9 +137,9 @@ private fun TrackMixPanel(client: TrackMixClient, reducedMotion: Boolean, dismis
             FlowRow(Modifier.padding(horizontal = 10.dp), horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 PresetLabels.forEachIndexed { index, preset ->
-                    MixChip(preset, current.preset == index, color) { edit("preset", 0, index) }
+                    MixChip(preset, current.preset == index, color, reducedMotion) { edit("preset", 0, index) }
                 }
-                MixChip("重置", false, color) { edit("reset", 0, 0) }
+                MixChip("重置", false, color, reducedMotion) { edit("reset", 0, 0) }
             }
             PlayerGlassMenuDivider()
             CompositionLocalProvider(LocalPlayerColor provides color) {
@@ -144,13 +148,25 @@ private fun TrackMixPanel(client: TrackMixClient, reducedMotion: Boolean, dismis
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                         MixText(name, color, 13, modifier = Modifier.width(30.dp))
-                        val set = { value: Float -> edit("level", lane, (150 * value).roundToInt()) }
-                        PlayerSlider(current.levels[lane] / 150f, true, "$name 音量", reducedMotion, Modifier.weight(1f),
-                            formatValue = { "${(150 * it).roundToInt()}%" }, onPreview = { it?.let(set) }, onCommit = set)
-                        MixText("${current.levels[lane]}%", color.copy(alpha = .65f), 12, modifier = Modifier.width(39.dp))
+                        val level = current.levels[lane] / 150f
+                        var preview by remember { mutableStateOf<Float?>(null) }
+                        val animatedLevel by animateFloatAsState(level,
+                            if (reducedMotion || preview != null) snap() else tween(MixTransitionMs))
+                        val displayed = preview ?: if (reducedMotion) level else animatedLevel
+                        val setLevel = { value: Float ->
+                            val percent = (150 * value).roundToInt()
+                            if (percent != current.levels[lane]) edit("level", lane, percent)
+                        }
+                        val format = { value: Float -> "${(150 * value).roundToInt()}%" }
+                        PlayerSlider(level, true, "$name 音量", reducedMotion, Modifier.weight(1f),
+                            formatValue = format, displayedValue = displayed, onPreview = { value ->
+                                preview = value
+                                value?.let(setLevel)
+                            }, onCommit = setLevel)
+                        MixText(format(displayed), color.copy(alpha = .65f), 12, modifier = Modifier.width(39.dp))
                         val bit = 1 shl lane
-                        MixChip("静音", (current.muted and bit) != 0, color) { edit("mute", lane, 0) }
-                        MixChip("独奏", (current.solos and bit) != 0, color) { edit("solo", lane, 0) }
+                        MixChip("静音", (current.muted and bit) != 0, color, reducedMotion) { edit("mute", lane, 0) }
+                        MixChip("独奏", (current.solos and bit) != 0, color, reducedMotion) { edit("solo", lane, 0) }
                     }
                 }
             }
@@ -159,10 +175,12 @@ private fun TrackMixPanel(client: TrackMixClient, reducedMotion: Boolean, dismis
 }
 
 @Composable
-private fun MixChip(label: String, active: Boolean, color: Color, click: () -> Unit) {
-    Box(Modifier.clip(RoundedCornerShape(8.dp)).background(color.copy(alpha = if (active) .18f else .06f))
+private fun MixChip(label: String, active: Boolean, color: Color, reducedMotion: Boolean, click: () -> Unit) {
+    val selectedTint by animateFloatAsState(if (active) 1f else 0f,
+        if (reducedMotion) snap() else tween(MixTransitionMs))
+    Box(Modifier.clip(RoundedCornerShape(8.dp)).background(color.copy(alpha = .06f + .12f * selectedTint))
         .selectable(active, role = Role.Button, onClick = click).padding(horizontal = 7.dp, vertical = 5.dp)) {
-        MixText(label, color.copy(alpha = if (active) 1f else .72f), 12)
+        MixText(label, color.copy(alpha = .72f + .28f * selectedTint), 12)
     }
 }
 

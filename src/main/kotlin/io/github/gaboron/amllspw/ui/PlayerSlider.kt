@@ -47,6 +47,7 @@ internal fun PlayerSlider(value: Float, enabled: Boolean, label: String, reduced
     modifier: Modifier = Modifier, gestureKey: Any? = Unit,
     spectrum: PlayerSpectrumMotion? = null,
     formatValue: (Float) -> String = { "${(it * 100).toInt()}%" },
+    displayedValue: Float = value,
     onPreview: (Float?) -> Unit = {}, onCommit: (Float) -> Unit) {
     val interactions = remember { MutableInteractionSource() }
     val hovered by interactions.collectIsHoveredAsState()
@@ -127,14 +128,14 @@ internal fun PlayerSlider(value: Float, enabled: Boolean, label: String, reduced
             val path = Path().apply { addRoundRect(androidx.compose.ui.geometry.RoundRect(bounds, CornerRadius(railHeight / 2))) }
             clipPath(path) {
                 drawRect(color.copy(alpha = if (enabled) .149f else .08f))
-                drawRect(color.copy(alpha = if (enabled) .65f else .1f), size = Size(size.width * value.coerceIn(0f, 1f), size.height))
+                drawRect(color.copy(alpha = if (enabled) .65f else .1f), size = Size(size.width * displayedValue.coerceIn(0f, 1f), size.height))
             }
         }
         AnimatedVisibility(dragging, modifier = Modifier.align(Alignment.TopStart).requiredHeight(34.dp).offset {
-            IntOffset((width * value - bubbleWidth / 2f).toInt().coerceIn(0, (width - bubbleWidth).coerceAtLeast(0)),
+            IntOffset((width * displayedValue - bubbleWidth / 2f).toInt().coerceIn(0, (width - bubbleWidth).coerceAtLeast(0)),
                 with(density) { (-40).dp.roundToPx() })
         }, enter = fadeIn(tween(if (reducedMotion) 0 else 100)), exit = fadeOut(tween(if (reducedMotion) 0 else 180))) {
-            BasicText(formatValue(value), Modifier.onSizeChanged { bubbleWidth = it.width }
+            BasicText(formatValue(displayedValue), Modifier.onSizeChanged { bubbleWidth = it.width }
                 .background(Color.Black.copy(alpha = .72f), RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 7.dp),
                 style = TextStyle(color = color, fontSize = 14.sp))
         }
