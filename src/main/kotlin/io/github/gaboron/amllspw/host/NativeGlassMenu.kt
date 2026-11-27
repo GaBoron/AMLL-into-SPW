@@ -96,7 +96,9 @@ internal class NativeGlassMenu(body: Method) {
         PlayerGlassSubmenus(pages) { (items, owner, levelPath), level, state ->
             PlayerGlassMenu(state.active) {
                 if (owner != null) {
-                    MenuRow(owner, state.acceptsBack, rotation = { 90f * state.unfoldProgress().coerceIn(0f, 1f) },
+                    MenuRow(owner, state.acceptsBack, Modifier.graphicsLayer {
+                        alpha = GlassSubmenuMotion.handoff(state.unfoldProgress())
+                    }, rotation = { 90f * state.unfoldProgress().coerceIn(0f, 1f) },
                         onClickLabel = if (state.active) "返回上一级" else "展开子菜单", onClick = {
                             path = if (state.active) levelPath.dropLast(1) else levelPath
                         })
@@ -108,7 +110,7 @@ internal class NativeGlassMenu(body: Method) {
                         else {
                             val row = remember { RowCoordinates() }
                             MenuRow(item, state.active, Modifier.onGloballyPositioned { row.value = it }
-                                .graphicsLayer { alpha = if (state.covered == index) 0f else 1f }, onClick = {
+                                .graphicsLayer { alpha = state.openerOpacity(index) }, onClick = {
                                 if (item.children != null) path = levelPath + Step(index, level.trigger(row.value, index))
                                 else {
                                     dismiss()

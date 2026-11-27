@@ -131,7 +131,7 @@ private fun ExtensionPanel(client: PlayerExtensionClient, panel: PlayerExtension
     val color = if (LocalPlayerGlassDark.current) Color.White else Color(0xff202020)
     CompositionLocalProvider(LocalPlayerColor provides color) {
         PlayerGlassSubmenus(pages) { controls, level, state ->
-            val actions = ExtensionPageActions(level, state.active, state.covered) { action, value, trigger ->
+            val actions = ExtensionPageActions(level, state) { action, value, trigger ->
                 client.action(panel, session, context, action, value)
                 refresh(trigger)
             }
@@ -146,7 +146,7 @@ private fun ExtensionPanel(client: PlayerExtensionClient, panel: PlayerExtension
     }
 }
 
-private data class ExtensionPageActions(val level: GlassMenuLevel, val active: Boolean, val covered: Any?,
+private data class ExtensionPageActions(val level: GlassMenuLevel, val state: GlassMenuLayerState,
     val send: (String, Int, GlassMenuTrigger?) -> Unit)
 
 private class ExtensionControlPosition(var coordinates: LayoutCoordinates? = null)
@@ -176,7 +176,7 @@ private fun ExtensionControl(control: Control, color: Color, reducedMotion: Bool
     val label = control.text("text")
     val action = control.text("action")
     val enabled = control.flag("enabled", true) && action.isNotBlank()
-    val interactive = actions.active && enabled
+    val interactive = actions.state.active && enabled
     val sizing = control.number("width").takeIf { it > 0 }?.let { modifier.width(it.dp) } ?: modifier
     val padding = control.number("padding").coerceIn(0, 32).dp
     val gap = control.number("gap", 5).coerceIn(0, 24).dp
@@ -205,7 +205,7 @@ private fun ExtensionControl(control: Control, color: Color, reducedMotion: Bool
             val click = { actions.send(action, 0, actions.level.trigger(position.coordinates, path)) }
             val svg = control.text("svg")
             Box(Modifier.onGloballyPositioned { position.coordinates = it }
-                .graphicsLayer { alpha = if (actions.covered == path) 0f else 1f }) {
+                .graphicsLayer { alpha = actions.state.openerOpacity(path) }) {
                 when {
                     svg.isNotBlank() -> PlayerMediaButtonContent(label, 32f, 18f, interactive, reducedMotion, icon = { icon, _ ->
                         ExtensionIcon(svg, label, icon, if (enabled) 1f else .25f)

@@ -46,8 +46,10 @@ internal val LocalPlayerGlassReducedMotion = staticCompositionLocalOf { false }
 
 internal data class GlassMenuTrigger(val bounds: Rect, val id: Any? = null)
 internal data class GlassMenuPage<T>(val key: Any, val data: T, val trigger: GlassMenuTrigger? = null)
-internal data class GlassMenuLayerState(val active: Boolean, val acceptsBack: Boolean, val covered: Any?,
-    val unfoldProgress: () -> Float)
+internal class GlassMenuLayerState(val active: Boolean, val acceptsBack: Boolean,
+    val unfoldProgress: () -> Float, private val covered: Any?, private val coverOpacity: () -> Float) {
+    fun openerOpacity(id: Any): Float = if (covered == id) 1f - coverOpacity() else 1f
+}
 
 internal class GlassMenuLevel {
     var coordinates: LayoutCoordinates? = null
@@ -67,9 +69,16 @@ internal object GlassSubmenuMotion {
     val unfold = spring(.85f, stiffness(.42f), .001f)
     val fold = spring(1f, stiffness(.34f), .001f)
 
+    // Hand the label and rim back to the original row before discarding the narrower clip.
+    fun handoff(progress: Float): Float {
+        val amount = (progress / .14f).coerceIn(0f, 1f)
+        return amount * amount * (3f - 2f * amount)
+    }
+
     fun items(progress: Float) = ((progress - .05f) / .35f).coerceIn(0f, 1f)
     fun parentScale(depth: Int, progress: Float) = (1f - .05f * distance(depth, progress)).coerceAtLeast(.65f)
     fun parentDim(depth: Int, progress: Float) = (.2f * distance(depth, progress)).coerceAtMost(.4f)
+    fun parentShadow(depth: Int, progress: Float) = (1f - distance(depth, progress) / 3f).coerceAtLeast(1f / 6f)
 
     fun parentOutline(card: Rect, openerTop: Float, scale: Float, density: Float): RoundRect {
         val pivot = Offset(card.right, openerTop.coerceIn(card.top, card.bottom))
@@ -105,7 +114,9 @@ internal fun <T> PlayerGlassSubmenus(pages: List<GlassMenuPage<T>>,
     val keys = pages.map { it.key }
     val latest = remember { mutableMapOf<Any, GlassMenuPage<T>>() }
     var mounted by remember { mutableStateOf(keys) }
+    var animatedKey by remember { mutableStateOf<Any?>(null) }
     var speed by remember { mutableFloatStateOf(0f) }
+    val phase = { if (animatedKey != null && animatedKey == mounted.lastOrNull()) progress.value else 1f }
     val desired = pages.associateBy { it.key }
     SideEffect {
         latest.putAll(desired)
@@ -119,11 +130,13 @@ internal fun <T> PlayerGlassSubmenus(pages: List<GlassMenuPage<T>>,
         if (reducedMotion || mounted.firstOrNull() != keys.firstOrNull()) {
             progress.snapTo(1f)
             mounted = keys
+            animatedKey = null
             speed = 0f
             return@LaunchedEffect
         }
         val common = mounted.zip(keys).takeWhile { (old, next) -> old == next }.size
         while (mounted.size > common) {
+            animatedKey = mounted.last()
             progress.animateTo(0f, GlassSubmenuMotion.fold, speed) { speed = velocity }
             mounted = mounted.dropLast(1)
             progress.snapTo(1f)
@@ -131,9 +144,13 @@ internal fun <T> PlayerGlassSubmenus(pages: List<GlassMenuPage<T>>,
         }
         if (mounted.size < keys.size) {
             progress.snapTo(0f)
+            animatedKey = keys.last()
             mounted = keys
         }
-        progress.animateTo(1f, GlassSubmenuMotion.unfold, speed) { speed = velocity }
+        if (animatedKey == mounted.lastOrNull()) {
+            progress.animateTo(1f, GlassSubmenuMotion.unfold, speed) { speed = velocity }
+        }
+        animatedKey = null
         speed = 0f
     }
 
@@ -150,8 +167,9 @@ internal fun <T> PlayerGlassSubmenus(pages: List<GlassMenuPage<T>>,
             val openerTop = child?.trigger?.bounds?.top ?: 0f
             val depth = visible.lastIndex - index
             val interactive = top && host?.expanded?.invoke() != false
+            val unfolding = { if (top && parent != null) phase() else 1f }
             val state = GlassMenuLayerState(interactive && page.key == keys.lastOrNull(), interactive,
-                child?.trigger?.id) { if (top && parent != null) progress.value else 1f }
+                unfolding, child?.trigger?.id) { if (depth == 1) GlassSubmenuMotion.handoff(phase()) else 1f }
             var size by remember { mutableStateOf(IntSize.Zero) }
             val frame: (Rect) -> RoundRect = { bounds ->
                 if (parent != null && top && host?.expanded?.invoke() != false) {
@@ -159,7 +177,7 @@ internal fun <T> PlayerGlassSubmenus(pages: List<GlassMenuPage<T>>,
                         (bounds.right - inset).coerceAtLeast(inset.toFloat()), inset + 44f * density)
                     GlassSubmenuMotion.outline(source.translate(Offset((parent.left - level.left).toFloat(),
                         (parent.top - level.top).toFloat())),
-                        bounds, progress.value, density)
+                        bounds, phase(), density)
                 } else RoundRect(bounds, CornerRadius(24f * density))
             }
             Box(Modifier.fillMaxWidth().onGloballyPositioned { level.coordinates = it }
@@ -169,15 +187,16 @@ internal fun <T> PlayerGlassSubmenus(pages: List<GlassMenuPage<T>>,
                     // Move the glass edges in window coordinates so the sampled background stays at full scale.
                     val glassFrame: (Rect) -> RoundRect = if (top) frame else { bounds ->
                         GlassSubmenuMotion.parentOutline(bounds, openerTop,
-                            GlassSubmenuMotion.parentScale(depth, progress.value), density)
+                            GlassSubmenuMotion.parentScale(depth, phase()), density)
                     }
                     GlassSubmenuPane(host.backdrop, dark, size, glassFrame,
-                        optics = { if (top && parent != null) (progress.value / .35f).coerceIn(0f, 1f) else 1f },
-                        shadow = { if (top && parent != null) progress.value.coerceIn(0f, 1f) else .65f })
+                        optics = { (unfolding() / .35f).coerceIn(0f, 1f) },
+                        opacity = { GlassSubmenuMotion.handoff(unfolding()) },
+                        shadow = { if (top) unfolding().coerceIn(0f, 1f) else GlassSubmenuMotion.parentShadow(depth, phase()) })
                 }
                 Box(Modifier.graphicsLayer {
                     if (!top) {
-                        val scale = GlassSubmenuMotion.parentScale(depth, progress.value)
+                        val scale = GlassSubmenuMotion.parentScale(depth, phase())
                         scaleX = scale
                         scaleY = scale
                         transformOrigin = TransformOrigin(1f, (openerTop / this.size.height.coerceAtLeast(1f)).coerceIn(0f, 1f))
@@ -190,7 +209,7 @@ internal fun <T> PlayerGlassSubmenus(pages: List<GlassMenuPage<T>>,
                 }.drawWithContent {
                     drawContent()
                     if (!top && host?.drawCardStack == true) drawRect(if (dark) Color.Black else Color.White,
-                        alpha = GlassSubmenuMotion.parentDim(depth, progress.value))
+                        alpha = GlassSubmenuMotion.parentDim(depth, phase()))
                 }.padding(8.dp), propagateMinConstraints = true) {
                     content(page.data, level, state)
                 }
@@ -212,7 +231,7 @@ internal fun <T> PlayerGlassSubmenus(pages: List<GlassMenuPage<T>>,
             y
         }
         val width = if (cards.size < 2) cardWidth else
-            GlassSubmenuMotion.stackExtent(cards[cards.lastIndex - 1].width, cardWidth, progress.value / .3f)
+            GlassSubmenuMotion.stackExtent(cards[cards.lastIndex - 1].width, cardWidth, phase() / .3f)
         cards.forEachIndexed { index, card -> geometry.getValue(visible[index].key).left = width - card.width }
         if (host != null) {
             val card = cards.lastOrNull()?.takeIf { cards.size > 1 }
@@ -223,13 +242,13 @@ internal fun <T> PlayerGlassSubmenus(pages: List<GlassMenuPage<T>>,
             host.topOutline = if (topBounds == null || anchor == null) null else {
                 val index = offsets.lastIndex - 1
                 val origin = anchor.translate(Offset((width - cards[index].width).toFloat(), offsets[index].toFloat()))
-                val outline: () -> RoundRect = { GlassSubmenuMotion.outline(origin, topBounds, progress.value, density) }
+                val outline: () -> RoundRect = { GlassSubmenuMotion.outline(origin, topBounds, phase(), density) }
                 outline
             }
         }
         val displayedHeight = if (cards.size < 2) height else {
             val parentHeight = (0 until cards.lastIndex).maxOf { offsets[it] + cards[it].height }
-            GlassSubmenuMotion.stackExtent(parentHeight, height, progress.value)
+            GlassSubmenuMotion.stackExtent(parentHeight, height, phase())
         }
         layout(width, displayedHeight.coerceAtLeast(constraints.minHeight)) {
             cards.forEachIndexed { index, card ->
@@ -243,7 +262,7 @@ internal fun <T> PlayerGlassSubmenus(pages: List<GlassMenuPage<T>>,
 
 @Composable
 private fun BoxScope.GlassSubmenuPane(backdrop: Backdrop, dark: Boolean, size: IntSize, frame: (Rect) -> RoundRect,
-    optics: () -> Float, shadow: () -> Float) {
+    optics: () -> Float, opacity: () -> Float, shadow: () -> Float) {
     if (size.width <= 0 || size.height <= 0) return
     val bounds = Rect(Offset.Zero, Size(size.width.toFloat(), size.height.toFloat()))
     val outline = frame(bounds)
@@ -254,8 +273,9 @@ private fun BoxScope.GlassSubmenuPane(backdrop: Backdrop, dark: Boolean, size: I
     Box(Modifier.matchParentSize().requiredSize(with(density) { rect.width.coerceAtLeast(1f).toDp() },
         with(density) { rect.height.coerceAtLeast(1f).toDp() })
         .playerGlassSurface(backdrop, dark, shape = { RoundedCornerShape(radius) }, optics = optics,
-            frost = { 12f }, opacity = { 1f }, shadowAlpha = shadow, layer = {
+            frost = { 12f }, opacity = opacity, shadowAlpha = shadow, layer = {
                 translationX = translation.x
                 translationY = translation.y
+                alpha = opacity()
             }))
 }
