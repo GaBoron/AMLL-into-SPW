@@ -1,5 +1,6 @@
 package io.github.gaboron.amllspw.ui
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
@@ -121,12 +122,16 @@ private fun ExtensionPanel(client: PlayerExtensionClient, panel: PlayerExtension
 
     val color = if (LocalPlayerGlassDark.current) Color.White else Color(0xff202020)
     CompositionLocalProvider(LocalPlayerColor provides color) {
-        key(controls?.firstOrNull()?.text("scrollKey")) {
-            PlayerGlassMenu {
-                key(context) {
-                    ExtensionControls(controls.orEmpty(), color, reducedMotion) { action, value ->
-                        client.action(panel, session, context, action, value)
-                        refresh()
+        val viewport = if (reducedMotion) Modifier else Modifier.animateContentSize(tween(TransitionMs))
+        // Keep the size animation alive while a page replaces its scroll state.
+        Box(viewport.fillMaxWidth()) {
+            key(controls?.firstOrNull()?.text("scrollKey")) {
+                PlayerGlassMenu {
+                    key(context) {
+                        ExtensionControls(controls.orEmpty(), color, reducedMotion) { action, value ->
+                            client.action(panel, session, context, action, value)
+                            refresh()
+                        }
                     }
                 }
             }

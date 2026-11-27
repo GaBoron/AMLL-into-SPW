@@ -97,19 +97,20 @@ private fun PlayerGlassPopup(entry: PlayerGlassPopupEntry, host: PlayerGlassPopu
     val phase = remember { Animatable(0f) }
     var opening by remember { mutableStateOf(true) }
     var from by remember { mutableStateOf(PlayerGlassMotion.source(entry.anchor.toRect())) }
-    var destination by remember { mutableStateOf(Rect.Zero) }
     val target = position.surface.toRect()
+    val measured = target.width > 0 && target.height > 0
     val returning = entry.source != null && !entry.atPointer
-    val frame = if (destination.width <= 0 || destination.height <= 0) from else if (opening)
-        PlayerGlassMotion.open(from, destination, phase.value, density.density,
+    val frame = if (!measured) from else if (opening)
+        PlayerGlassMotion.open(from, target, phase.value, density.density,
             if (returning) entry.anchor.toRect() else null)
     else PlayerGlassMotion.close(from, entry.anchor.toRect(), phase.value, returning, density.density)
     val current by rememberUpdatedState(frame)
     val expanded = entry.expanded && entry.content != null
-    LaunchedEffect(expanded, position.surface, reducedMotion) {
-        if (target.width > 0 && target.height > 0) {
+    // Content can resize on every frame during in-panel navigation. Only the
+    // popup lifecycle starts an opening or closing morph.
+    LaunchedEffect(expanded, measured, reducedMotion) {
+        if (measured) {
             from = current
-            destination = target
             opening = expanded
             entry.sourceHidden = returning
             phase.snapTo(0f)
