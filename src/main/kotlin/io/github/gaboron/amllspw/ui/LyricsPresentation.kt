@@ -12,6 +12,7 @@ internal data class LyricsPresentation(
     val title: String = "",
     val artist: String = "",
     val album: String = "",
+    val albumArtist: String = "",
     val durationMs: Long = 0,
     val artwork: ImageBitmap? = null,
     val backgroundArtwork: ImageBitmap? = null,

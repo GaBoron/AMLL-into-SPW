@@ -26,8 +26,22 @@ internal class NativeGlassMenu(body: Method) {
     private val invokeBuilder = Function1::class.java.getMethod("invoke", Any::class.java)
     private val invokeLabel = Function2::class.java.getMethod("invoke", Any::class.java, Any::class.java)
     private val invokeAction = Function0::class.java.getMethod("invoke")
-    private data class Entry(val label: Any? = null, val enabled: Boolean = true, val action: Any? = null,
-        val children: Any? = null)
+    internal class Entry(
+        val label: (@Composable () -> Unit)? = null,
+        val enabled: Boolean = true,
+        val action: (() -> Unit)? = null,
+        val children: (() -> List<Entry>)? = null,
+    ) {
+        companion object {
+            fun destinations(title: String, choices: List<Pair<String, () -> Unit>>): Entry? = when (choices.size) {
+                0 -> null
+                1 -> Entry(label = { PlayerGlassMenuText(title) }, action = choices.single().second)
+                else -> Entry(label = { PlayerGlassMenuText(title) }, children = {
+                    choices.map { (name, open) -> Entry(label = { PlayerGlassMenuText(name) }, action = open) }
+                })
+            }
+        }
+    }
 
     private fun read(builder: Any): List<Entry> {
         val entries = mutableListOf<Entry>()
@@ -43,12 +57,12 @@ internal class NativeGlassMenu(body: Method) {
                     entries += Entry()
                     null
                 }
-                method.parameterTypes[0] == Function0::class.java -> {
-                    entries += Entry(args!![2], args[1] as Boolean, action = args[0])
-                    null
-                }
                 else -> {
-                    entries += Entry(args!![2], args[1] as Boolean, children = args[0])
+                    val (callback, enabled, label) = requireNotNull(args)
+                    val draw: @Composable () -> Unit = { invokeLabel.invoke(label, currentComposer, 0) }
+                    entries += if (method.parameterTypes[0] == Function0::class.java)
+                        Entry(draw, enabled as Boolean, action = { invokeAction.invoke(callback) })
+                    else Entry(draw, enabled as Boolean, children = { read(requireNotNull(callback)) })
                     null
                 }
             }
@@ -58,29 +72,38 @@ internal class NativeGlassMenu(body: Method) {
     }
 
     @Composable
-    fun Content(builder: Any, dismiss: () -> Unit) {
+    fun Content(builder: Any, navigation: List<Entry>, dismiss: () -> Unit) {
         var path by remember { mutableStateOf(emptyList<Int>()) }
         var entries = read(builder)
+        if (navigation.isNotEmpty()) {
+            if (entries.isNotEmpty() && entries.last().label != null) entries = entries + Entry()
+            entries = entries + navigation
+        }
+        var depth = 0
         for (index in path) {
             val nested = entries.getOrNull(index)?.children ?: break
-            entries = read(nested)
+            entries = nested()
+            depth++
         }
-        PlayerGlassMenu {
-            if (path.isNotEmpty()) PlayerGlassMenuItem(onClick = { path = path.dropLast(1) }) {
-                PlayerGlassMenuText("‹  返回")
-            }
-            entries.forEachIndexed { index, entry ->
-                if (entry.label == null) PlayerGlassMenuDivider()
-                else PlayerGlassMenuItem(entry.enabled, {
-                    if (entry.children != null) path = path + index
-                    else {
-                        dismiss()
-                        invokeAction.invoke(entry.action)
-                    }
-                }) {
-                    Row {
-                        Box(Modifier.weight(1f)) { invokeLabel.invoke(entry.label, currentComposer, 0) }
-                        if (entry.children != null) PlayerGlassMenuText("›")
+        val activePath = path.take(depth)
+        key(activePath) {
+            PlayerGlassMenu {
+                if (activePath.isNotEmpty()) PlayerGlassMenuItem(onClick = { path = activePath.dropLast(1) }) {
+                    PlayerGlassMenuText("‹  返回")
+                }
+                entries.forEachIndexed { index, entry ->
+                    if (entry.label == null) PlayerGlassMenuDivider()
+                    else PlayerGlassMenuItem(entry.enabled, {
+                        if (entry.children != null) path = activePath + index
+                        else {
+                            dismiss()
+                            entry.action?.invoke()
+                        }
+                    }) {
+                        Row {
+                            Box(Modifier.weight(1f)) { entry.label.invoke() }
+                            if (entry.children != null) PlayerGlassMenuText("›")
+                        }
                     }
                 }
             }

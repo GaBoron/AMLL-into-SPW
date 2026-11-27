@@ -45,6 +45,9 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
     private val sheetBottom = method(target.sheetBottom)
     private val sheetProgress = method(target.sheetProgress)
     private val actions = runCatching { NativePlayerActions(loader) }.getOrNull()
+    private val trackNavigation = runCatching { NativeTrackNavigation(loader, target.artistNames) }.onFailure {
+        System.err.println("AMLL: 曲目页面跳转不可用：${it.message}")
+    }.getOrNull()
     private val extensions = PlayerExtensionClient()
     private val spectrum = runCatching { NativePlayerSpectrum(loader, extensions) }.onFailure {
         System.err.println("AMLL: 播放频谱不可用：${it.message}")
@@ -212,7 +215,14 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
             pageMenu = { size ->
                 val popup = popups["more"]
                 if (popup != null) popup.Button("更多", "icon_more", size, size * .72f,
-                    presentation.trackKey.isNotBlank(), options.reducedMotion)
+                    presentation.trackKey.isNotBlank(), options.reducedMotion) {
+                    remember(presentation.trackKey, presentation.artist, presentation.album, presentation.albumArtist,
+                        presentation.externalPlayback) {
+                        trackNavigation?.entries(presentation) { open ->
+                            runtime.localPlayerAction(presentation.trackKey) { if (rebuilding(runtime)) open() }
+                        }.orEmpty()
+                    }
+                }
                 else PlayerMediaButton("更多", "icon_more", size, size * .72f, enabled = false) {}
             },
             queue = { side, iconSize ->

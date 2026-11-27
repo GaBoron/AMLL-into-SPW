@@ -18,6 +18,7 @@ internal data class NativePlayerTarget(
     val sheetExpanded: Member,
     val sheetBottom: Member,
     val sheetProgress: Member,
+    val artistNames: Member?,
 ) {
     data class Member(val owner: String, val name: String, val descriptor: String) {
         val parameters: List<String> get() = Type.getArgumentTypes(descriptor)
@@ -40,6 +41,7 @@ internal data class NativePlayerTarget(
         private const val GLASS = "com.xuncorp.voxzen.ui.main.surface.PlayerSurfaceGlass (MainSurface.kt:"
         private const val COVER = "com.xuncorp.voxzen.ui.player.FloatPlaybackCover (FloatPlaybackCover.kt:"
         private const val MINI = "com.xuncorp.voxzen.ui.player.mini.MiniPlayer (MiniPlayerContent.kt:"
+        private const val TRACK_MENU = "com.xuncorp.voxzen.ui.screen.track.popupmenu.MultipleTrackPopupMenu (MultipleTrackPopupMenu.kt:"
         private const val COMPOSER = "Landroidx/compose/runtime/Composer;"
         private const val LOCAL = "()Landroidx/compose/runtime/ProvidableCompositionLocal;"
         private const val SHEET_STATE = "com/xuncorp/voxzen/ui/component/PlayerSheetState"
@@ -60,7 +62,7 @@ internal data class NativePlayerTarget(
                     if (!entry.name.endsWith(".class")) continue
                     val bytes = jar.getInputStream(entry).use { it.readBytes() }
                     val pool = String(bytes, Charsets.ISO_8859_1)
-                    if (listOf(PAGE, SHEET, THEME, SURFACE, GLASS, COVER, MINI).any { it in pool } ||
+                    if (listOf(PAGE, SHEET, THEME, SURFACE, GLASS, COVER, MINI, TRACK_MENU).any { it in pool } ||
                         controlMarkers.values.any { it in pool } || popupMarkers.values.any { it in pool }) bodies += read(bytes)
                 }
                 val page = bodies.filter { body -> body.markers.any { it.startsWith(PAGE) } }.singleOrNull()
@@ -225,8 +227,24 @@ internal data class NativePlayerTarget(
                 NativePlayerTarget(theme.member, page.member.owner, controls, popups, listOf(
                     Chrome(cover.member, surface.member.owner, ChromeKind.COVER),
                     Chrome(theme.member, mini.member.owner, ChromeKind.MINI_PLAYER),
-                ), glassEnabled, glassSites.single().first.member, local, expanded, bottom, progress)
+                ), glassEnabled, glassSites.single().first.member, local, expanded, bottom, progress, bodies.artistNames())
             }
+
+        private fun List<Body>.artistNames(): Member? {
+            val trackMenu = singleOrNull { body -> body.markers.any { it.startsWith(TRACK_MENU) } } ?: return null
+            val albumArtist = Member("com/xuncorp/voxzen/data/entity/Track", "getAlbumArtist", "()Ljava/lang/String;")
+            // The menu's generated content method applies the same parser to track and album artists.
+            return asSequence()
+                .filter { it.member.owner == trackMenu.member.owner }
+                .flatMap { it.calls.zipWithNext().asSequence() }
+                .filter { (getter, parser) ->
+                    getter.target == albumArtist && getter.opcode == Opcodes.INVOKEVIRTUAL &&
+                        parser.opcode == Opcodes.INVOKESTATIC && parser.target.descriptor == "(Ljava/lang/String;)Ljava/util/List;"
+                }
+                .map { (_, parser) -> parser.target }
+                .distinct()
+                .singleOrNull()
+        }
 
         private fun List<Body>.marked(marker: String): Body =
             singleOrNull { body -> body.markers.any { it.startsWith(marker) } } ?: error("无法唯一确认原生页面组件：$marker")

@@ -244,7 +244,8 @@ internal class AmllRuntime : AutoCloseable {
         val audio = if (externalTrack == null) localMediaPath(media.path) else null
         val languages = if (options.automaticCantoneseRuby) audio?.let(languageReader::read).orEmpty() else emptyList()
         val metadataChanged = selectedMedia?.let {
-            it.title != media.title || it.artist != media.artist || it.album != media.album || it.duration != media.duration
+            it.title != media.title || it.artist != media.artist || it.album != media.album ||
+                it.albumArtist != media.albumArtist || it.duration != media.duration
         } == true
         if (initialized && next == key && !reload && !metadataChanged) {
             if (languages != audioLanguages || hostLyricsAvailability.awaitingConfirmation) {
@@ -267,7 +268,8 @@ internal class AmllRuntime : AutoCloseable {
             LyricsPresentation(trackKey = next, loading = true)
         }
         mutablePresentation.value = base.copy(
-            title = media.title, artist = media.artist, album = media.album, durationMs = media.duration.coerceAtLeast(0),
+            title = media.title, artist = media.artist, album = media.album, albumArtist = media.albumArtist,
+            durationMs = media.duration.coerceAtLeast(0),
             artwork = colors?.artwork, backgroundArtwork = colors?.backgroundArtwork,
             artworkLoading = !ready, externalPlayback = externalTrack != null,
             transportAvailable = externalTrack?.let(external::supportsTransport) ?: true,
