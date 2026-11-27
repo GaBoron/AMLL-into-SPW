@@ -2,6 +2,7 @@ package io.github.gaboron.amllspw.verify
 
 import io.github.gaboron.amllspw.interop.PlayerExtensionClient
 import io.github.gaboron.amllspw.interop.RebuiltPlayerBridge
+import io.github.gaboron.amllspw.ui.extensionPageKey
 import javax.management.MBeanServerFactory
 import javax.management.ObjectName
 import javax.management.StandardMBean
@@ -49,7 +50,20 @@ internal fun verifyPlayerExtensions() {
         check(server.getAttribute(host, "Active") == true)
     }
     check(!server.isRegistered(host))
+    verifyExtensionPageIdentity()
     println("Player extensions: independent panels, typed actions, close, spectrum, and host discovery passed")
+}
+
+private fun verifyExtensionPageIdentity() {
+    fun key(scroll: String, page: String = "", id: String = "heading", type: String = "column") =
+        extensionPageKey(listOf(PlayerExtensionClient.Control(type, id,
+            mapOf("scrollKey" to scroll, "pageKey" to page), emptyList())))
+
+    check(key("mixer") != key("settings") && key("settings") != key("cache-0"))
+    check(key("cache-0") == key("cache-1"))
+    check(key("cache-0") != key("cache-0", id = "details"))
+    check(key("context-a", "cache") == key("context-b", "cache"))
+    check(key("unchanged", "mixer") != key("unchanged", "settings"))
 }
 
 interface PanelFixtureMBean {

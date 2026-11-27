@@ -3,7 +3,11 @@ package io.github.gaboron.amllspw.host
 
 import androidx.compose.runtime.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import io.github.gaboron.amllspw.ui.*
 import java.lang.reflect.Method
 import java.lang.reflect.ParameterizedType
@@ -33,11 +37,12 @@ internal class NativeGlassMenu(body: Method) {
         val children: (() -> List<Entry>)? = null,
     ) {
         companion object {
-            fun destinations(title: String, choices: List<Pair<String, () -> Unit>>): Entry? = when (choices.size) {
+            fun destinations(title: String, drawLabel: @Composable (String) -> Unit,
+                choices: List<Pair<String, () -> Unit>>): Entry? = when (choices.size) {
                 0 -> null
-                1 -> Entry(label = { PlayerGlassMenuText(title) }, action = choices.single().second)
-                else -> Entry(label = { PlayerGlassMenuText(title) }, children = {
-                    choices.map { (name, open) -> Entry(label = { PlayerGlassMenuText(name) }, action = open) }
+                1 -> Entry(label = { drawLabel(title) }, action = choices.single().second)
+                else -> Entry(label = { drawLabel(title) }, children = {
+                    choices.map { (name, open) -> Entry(label = { drawLabel(name) }, action = open) }
                 })
             }
         }
@@ -71,40 +76,62 @@ internal class NativeGlassMenu(body: Method) {
         return entries
     }
 
+    private data class Step(val index: Int, val trigger: GlassMenuTrigger?)
+    private data class Page(val entries: List<Entry>, val owner: Entry? = null, val path: List<Step> = emptyList())
+
     @Composable
     fun Content(builder: Any, navigation: List<Entry>, dismiss: () -> Unit) {
-        var path by remember { mutableStateOf(emptyList<Int>()) }
-        var entries = read(builder)
-        if (navigation.isNotEmpty()) {
-            if (entries.isNotEmpty() && entries.last().label != null) entries = entries + Entry()
-            entries = entries + navigation
+        var path by remember { mutableStateOf(emptyList<Step>()) }
+        val native = read(builder)
+        val root = if (navigation.isEmpty() || native.isEmpty()) navigation + native
+            else navigation + Entry() + native.dropWhile { it.label == null }
+        val pages = mutableListOf(GlassMenuPage(emptyList<Int>(), Page(root)))
+        var entries = root
+        for ((depth, step) in path.withIndex()) {
+            val owner = entries.getOrNull(step.index) ?: break
+            entries = owner.children?.invoke() ?: break
+            val levelPath = path.take(depth + 1)
+            pages += GlassMenuPage(levelPath.map(Step::index), Page(entries, owner, levelPath), step.trigger)
         }
-        var depth = 0
-        for (index in path) {
-            val nested = entries.getOrNull(index)?.children ?: break
-            entries = nested()
-            depth++
-        }
-        val activePath = path.take(depth)
-        key(activePath) {
-            PlayerGlassMenu {
-                if (activePath.isNotEmpty()) PlayerGlassMenuItem(onClick = { path = activePath.dropLast(1) }) {
-                    PlayerGlassMenuText("‹  返回")
+        PlayerGlassSubmenus(pages) { (items, owner, levelPath), level, state ->
+            PlayerGlassMenu(state.active) {
+                if (owner != null) {
+                    MenuRow(owner, state.acceptsBack, rotation = { 90f * state.unfoldProgress().coerceIn(0f, 1f) },
+                        onClickLabel = if (state.active) "返回上一级" else "展开子菜单", onClick = {
+                            path = if (state.active) levelPath.dropLast(1) else levelPath
+                        })
                 }
-                entries.forEachIndexed { index, entry ->
-                    if (entry.label == null) PlayerGlassMenuDivider()
-                    else PlayerGlassMenuItem(entry.enabled, {
-                        if (entry.children != null) path = activePath + index
+                Column(Modifier.graphicsLayer { alpha = GlassSubmenuMotion.items(state.unfoldProgress()) }) {
+                    if (owner != null) PlayerGlassMenuDivider()
+                    items.forEachIndexed { index, item ->
+                        if (item.label == null) PlayerGlassMenuDivider()
                         else {
-                            dismiss()
-                            entry.action?.invoke()
-                        }
-                    }) {
-                        Row {
-                            Box(Modifier.weight(1f)) { entry.label.invoke() }
-                            if (entry.children != null) PlayerGlassMenuText("›")
+                            val row = remember { RowCoordinates() }
+                            MenuRow(item, state.active, Modifier.onGloballyPositioned { row.value = it }
+                                .graphicsLayer { alpha = if (state.covered == index) 0f else 1f }, onClick = {
+                                if (item.children != null) path = levelPath + Step(index, level.trigger(row.value, index))
+                                else {
+                                    dismiss()
+                                    item.action?.invoke()
+                                }
+                            })
                         }
                     }
+                }
+            }
+        }
+    }
+
+    private class RowCoordinates(var value: LayoutCoordinates? = null)
+
+    @Composable
+    private fun MenuRow(entry: Entry, active: Boolean, modifier: Modifier = Modifier,
+        rotation: () -> Float = { 0f }, onClickLabel: String? = null, onClick: () -> Unit) {
+        PlayerGlassMenuItem(active && entry.enabled, onClick, modifier, onClickLabel) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { entry.label?.invoke() }
+                if (entry.children != null) Box(Modifier.graphicsLayer { rotationZ = rotation() }) {
+                    PlayerGlassMenuText("›", entry.enabled)
                 }
             }
         }

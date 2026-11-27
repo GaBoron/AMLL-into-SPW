@@ -26,17 +26,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable
-internal fun PlayerGlassMenu(content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), content = content)
+internal fun PlayerGlassMenu(active: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState(), enabled = active), content = content)
 }
 
 @Composable
-internal fun PlayerGlassMenuItem(enabled: Boolean = true, onClick: () -> Unit, content: @Composable () -> Unit) {
+internal fun PlayerGlassMenuItem(enabled: Boolean = true, onClick: () -> Unit, modifier: Modifier = Modifier,
+    onClickLabel: String? = null, content: @Composable () -> Unit) {
     val interactions = remember { MutableInteractionSource() }
     val hovered by interactions.collectIsHoveredAsState()
     val focus = LocalFocusManager.current
     val hoverColor = if (LocalPlayerGlassDark.current) Color.White else Color.Black
-    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+    Box(modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
         .background(if (hovered && enabled) hoverColor.copy(alpha = .13f) else Color.Transparent)
         .hoverable(interactions, enabled)
         .onPreviewKeyEvent {
@@ -45,7 +46,7 @@ internal fun PlayerGlassMenuItem(enabled: Boolean = true, onClick: () -> Unit, c
                 Key.DirectionUp -> focus.moveFocus(FocusDirection.Previous)
                 else -> false
             }
-        }.clickable(enabled = enabled, onClick = onClick)
+        }.clickable(enabled = enabled, onClickLabel = onClickLabel, onClick = onClick)
         .heightIn(min = 44.dp).padding(horizontal = 12.dp, vertical = 10.dp),
         contentAlignment = Alignment.CenterStart) { content() }
 }

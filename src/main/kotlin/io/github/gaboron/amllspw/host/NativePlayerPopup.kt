@@ -85,6 +85,7 @@ internal class NativePlayerPopup(target: NativePlayerTarget.Popup, private val l
         val sourceIconSize by rememberUpdatedState(iconSize)
         val entry = remember { PlayerGlassPopupEntry(label) { dismiss.invoke(state) }.also {
             it.width = if (body == null) 400.dp else 280.dp
+            it.hasSubmenus = glassMenu != null
             it.source = { PlayerIcon(icon, null, Modifier.size(sourceIconSize.dp)) }
         } }
         val host = LocalPlayerGlassPopups.current

@@ -13,6 +13,7 @@ import io.github.gaboron.amllspw.interop.PlayerExtensionClient
 import io.github.gaboron.amllspw.ui.PlayerPage
 import io.github.gaboron.amllspw.ui.PlayerExtensionButtons
 import io.github.gaboron.amllspw.ui.PlayerMediaButton
+import io.github.gaboron.amllspw.ui.PlayerGlassMenuText
 import io.github.gaboron.amllspw.ui.LocalPlayerGlassDark
 import java.lang.invoke.MethodType
 import java.lang.reflect.Method
@@ -25,7 +26,7 @@ import kotlinx.coroutines.launch
 
 /** Keeps the host theme provider while selecting either its original content or the rebuilt page. */
 @OptIn(UnstableSpwWorkshopApi::class)
-internal class NativePlayerContent(val target: NativePlayerTarget,
+internal class NativePlayerContent(val target: NativePlayerTarget, private val nativeMenu: NativeLyricsMenu?,
     private val loader: ClassLoader = WorkshopApi::class.java.classLoader) : AutoCloseable {
     private fun method(member: NativePlayerTarget.Member): Method {
         val type = MethodType.fromMethodDescriptorString(member.descriptor, loader)
@@ -218,7 +219,9 @@ internal class NativePlayerContent(val target: NativePlayerTarget,
                     presentation.trackKey.isNotBlank(), options.reducedMotion) {
                     remember(presentation.trackKey, presentation.artist, presentation.album, presentation.albumArtist,
                         presentation.externalPlayback) {
-                        trackNavigation?.entries(presentation) { open ->
+                        trackNavigation?.entries(presentation, label = { text ->
+                            if (nativeMenu != null) nativeMenu.Label(text) else PlayerGlassMenuText(text)
+                        }) { open ->
                             runtime.localPlayerAction(presentation.trackKey) { if (rebuilding(runtime)) open() }
                         }.orEmpty()
                     }

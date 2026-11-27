@@ -1,6 +1,5 @@
 package io.github.gaboron.amllspw.ui
 
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
@@ -17,6 +16,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -60,6 +60,7 @@ private fun PlayerExtensionButton(client: PlayerExtensionClient, panel: PlayerEx
     val entry = remember(panel, host) {
         lateinit var popup: PlayerGlassPopupEntry
         popup = PlayerGlassPopupEntry(panel.label) { popup.expanded = false }
+        popup.hasSubmenus = true
         popup
     }
     val currentContext by rememberUpdatedState(context)
@@ -103,16 +104,23 @@ private fun ExtensionIcon(svg: String, label: String?, modifier: Modifier, alpha
 @Composable
 private fun ExtensionPanel(client: PlayerExtensionClient, panel: PlayerExtensionClient.Panel, session: String,
     context: PlayerExtensionClient.Context, reducedMotion: Boolean, dismiss: () -> Unit) {
-    var controls by remember(client, panel, session, context) {
-        mutableStateOf(client.render(panel, session, context))
+    var pages by remember(client, panel, session, context) {
+        val controls = client.render(panel, session, context).orEmpty()
+        mutableStateOf(listOf(GlassMenuPage(extensionPageKey(controls), controls)))
     }
-    val refresh = {
+    val refresh: (GlassMenuTrigger?) -> Unit = { trigger ->
         val updated = client.render(panel, session, context)
-        if (updated == null) dismiss() else controls = updated
+        if (updated == null) dismiss()
+        else {
+            val key = extensionPageKey(updated)
+            val previous = pages.indexOfLast { it.key == key }
+            pages = if (previous < 0) pages + GlassMenuPage(key, updated, trigger)
+                else pages.take(previous) + pages[previous].copy(data = updated)
+        }
     }
     LaunchedEffect(client, panel, session, context) {
         while (true) {
-            refresh()
+            refresh(null)
             delay(160)
         }
     }
@@ -122,16 +130,15 @@ private fun ExtensionPanel(client: PlayerExtensionClient, panel: PlayerExtension
 
     val color = if (LocalPlayerGlassDark.current) Color.White else Color(0xff202020)
     CompositionLocalProvider(LocalPlayerColor provides color) {
-        val viewport = if (reducedMotion) Modifier else Modifier.animateContentSize(tween(TransitionMs))
-        // Keep the size animation alive while a page replaces its scroll state.
-        Box(viewport.fillMaxWidth()) {
-            key(controls?.firstOrNull()?.text("scrollKey")) {
-                PlayerGlassMenu {
-                    key(context) {
-                        ExtensionControls(controls.orEmpty(), color, reducedMotion) { action, value ->
-                            client.action(panel, session, context, action, value)
-                            refresh()
-                        }
+        PlayerGlassSubmenus(pages) { controls, level, state ->
+            val actions = ExtensionPageActions(level, state.active, state.covered) { action, value, trigger ->
+                client.action(panel, session, context, action, value)
+                refresh(trigger)
+            }
+            Box(Modifier.graphicsLayer { alpha = GlassSubmenuMotion.items(state.unfoldProgress()) }) {
+                key(context, controls.firstOrNull()?.text("scrollKey")) {
+                    PlayerGlassMenu(state.active) {
+                        ExtensionControls(controls, color, reducedMotion, actions)
                     }
                 }
             }
@@ -139,55 +146,78 @@ private fun ExtensionPanel(client: PlayerExtensionClient, panel: PlayerExtension
     }
 }
 
+private data class ExtensionPageActions(val level: GlassMenuLevel, val active: Boolean, val covered: Any?,
+    val send: (String, Int, GlassMenuTrigger?) -> Unit)
+
+private class ExtensionControlPosition(var coordinates: LayoutCoordinates? = null)
+
+private val numberedScrollKey = Regex("(.+[-_])([0-9]+)")
+
+internal fun extensionPageKey(controls: List<Control>): List<String> {
+    val first = controls.firstOrNull() ?: return emptyList()
+    val page = first.text("pageKey")
+    if (page.isNotBlank()) return listOf("page", page)
+    val scroll = first.text("scrollKey")
+    val series = numberedScrollKey.matchEntire(scroll)?.groupValues?.get(1)
+    return if (series == null) listOf("scroll", scroll) else listOf("series", first.type, first.id, series)
+}
+
 @Composable
-private fun ExtensionControls(controls: List<Control>, color: Color, reducedMotion: Boolean,
-    onAction: (String, Int) -> Unit) {
+private fun ExtensionControls(controls: List<Control>, color: Color, reducedMotion: Boolean, actions: ExtensionPageActions,
+    parent: List<String> = emptyList()) {
     for (control in controls) key(control.id) {
-        ExtensionControl(control, color, reducedMotion, Modifier, onAction)
+        ExtensionControl(control, color, reducedMotion, Modifier, actions, parent + control.id)
     }
 }
 
 @Composable
 private fun ExtensionControl(control: Control, color: Color, reducedMotion: Boolean, modifier: Modifier,
-    onAction: (String, Int) -> Unit) {
+    actions: ExtensionPageActions, path: List<String>) {
     val label = control.text("text")
     val action = control.text("action")
     val enabled = control.flag("enabled", true) && action.isNotBlank()
+    val interactive = actions.active && enabled
     val sizing = control.number("width").takeIf { it > 0 }?.let { modifier.width(it.dp) } ?: modifier
     val padding = control.number("padding").coerceIn(0, 32).dp
     val gap = control.number("gap", 5).coerceIn(0, 24).dp
     when (control.type) {
         "column" -> Column(sizing.fillMaxWidth().padding(padding), verticalArrangement = Arrangement.spacedBy(gap)) {
-            ExtensionControls(control.children, color, reducedMotion, onAction)
+            ExtensionControls(control.children, color, reducedMotion, actions, path)
         }
         "row" -> Row(sizing.fillMaxWidth().padding(horizontal = padding), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(gap)) {
             for (child in control.children) key(child.id) {
                 val weight = if (child.flag("fill")) Modifier.weight(1f) else Modifier
-                ExtensionControl(child, color, reducedMotion, weight, onAction)
+                ExtensionControl(child, color, reducedMotion, weight, actions, path + child.id)
             }
         }
         "wrap" -> FlowRow(sizing.padding(horizontal = padding), horizontalArrangement = Arrangement.spacedBy(gap),
             verticalArrangement = Arrangement.spacedBy(gap)) {
-            ExtensionControls(control.children, color, reducedMotion, onAction)
+            ExtensionControls(control.children, color, reducedMotion, actions, path)
         }
         "text" -> ExtensionText(label, color, control.number("size", 13).coerceIn(10, 24),
             sizing.padding(horizontal = padding), control.flag("emphasis"), control.flag("muted"),
             control.number("lines", 1).coerceIn(1, 5))
         "divider" -> PlayerGlassMenuDivider()
         "button" -> {
+            val position = remember { ExtensionControlPosition() }
             val selected = control.flag("selected")
-            val click = { onAction(action, 0) }
+            val click = { actions.send(action, 0, actions.level.trigger(position.coordinates, path)) }
             val svg = control.text("svg")
-            when {
-                svg.isNotBlank() -> PlayerMediaButtonContent(label, 32f, 18f, enabled, reducedMotion, icon = { icon, alpha ->
-                    ExtensionIcon(svg, label, icon, alpha)
-                }, onClick = click)
-                control.text("style") == "chip" -> ExtensionChip(label, selected, enabled, color, reducedMotion, click)
-                else -> PlayerGlassMenuItem(enabled = enabled, onClick = click) { PlayerGlassMenuText(label, enabled) }
+            Box(Modifier.onGloballyPositioned { position.coordinates = it }
+                .graphicsLayer { alpha = if (actions.covered == path) 0f else 1f }) {
+                when {
+                    svg.isNotBlank() -> PlayerMediaButtonContent(label, 32f, 18f, interactive, reducedMotion, icon = { icon, _ ->
+                        ExtensionIcon(svg, label, icon, if (enabled) 1f else .25f)
+                    }, onClick = click)
+                    control.text("style") == "chip" -> ExtensionChip(label, selected, enabled, interactive, color, reducedMotion, click)
+                    else -> PlayerGlassMenuItem(enabled = interactive, onClick = click) { PlayerGlassMenuText(label, enabled) }
+                }
             }
         }
-        "slider" -> ExtensionSlider(control, sizing, color, enabled, reducedMotion, onAction)
+        "slider" -> ExtensionSlider(control, sizing, color, interactive, reducedMotion) { id, value ->
+            actions.send(id, value, null)
+        }
         "progress" -> {
             val value = ((control.properties["value"] as? Number)?.toFloat() ?: 0f)
                 .takeIf(Float::isFinite)?.coerceIn(0f, 1f) ?: 0f
@@ -200,11 +230,11 @@ private fun ExtensionControl(control: Control, color: Color, reducedMotion: Bool
 }
 
 @Composable
-private fun ExtensionChip(label: String, active: Boolean, enabled: Boolean, color: Color, reducedMotion: Boolean,
+private fun ExtensionChip(label: String, active: Boolean, enabled: Boolean, interactive: Boolean, color: Color, reducedMotion: Boolean,
     onClick: () -> Unit) {
     val tint by animateFloatAsState(if (active) 1f else 0f, if (reducedMotion) snap() else tween(TransitionMs))
     Box(Modifier.clip(RoundedCornerShape(8.dp)).background(color.copy(alpha = .06f + .12f * tint))
-        .selectable(active, enabled = enabled, role = Role.Button, onClick = onClick)
+        .selectable(active, enabled = interactive, role = Role.Button, onClick = onClick)
         .padding(horizontal = 7.dp, vertical = 5.dp)) {
         ExtensionText(label, color.copy(alpha = if (enabled) .72f + .28f * tint else .42f), 12)
     }

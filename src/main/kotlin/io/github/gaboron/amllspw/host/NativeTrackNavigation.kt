@@ -1,5 +1,6 @@
 package io.github.gaboron.amllspw.host
 
+import androidx.compose.runtime.Composable
 import io.github.gaboron.amllspw.ui.LyricsPresentation
 
 /** Uses the same route keys and artist names as the native library's track menu. */
@@ -15,7 +16,8 @@ internal class NativeTrackNavigation(private val loader: ClassLoader, artistName
     private val albumRoute = hostClass("$route\$AlbumContent").getConstructor(String::class.java, String::class.java)
     private val parseArtists = artistNames?.let { hostClass(it.owner.replace('/', '.')).getMethod(it.name, String::class.java) }
 
-    fun entries(presentation: LyricsPresentation, dispatch: (() -> Unit) -> Unit): List<NativeGlassMenu.Entry> {
+    fun entries(presentation: LyricsPresentation, label: @Composable (String) -> Unit,
+        dispatch: (() -> Unit) -> Unit): List<NativeGlassMenu.Entry> {
         if (presentation.externalPlayback || presentation.trackKey.isBlank()) return emptyList()
         val artists = runCatching { parseArtists?.invoke(null, presentation.artist) as? List<*> }
             .onFailure { System.err.println("AMLL: 歌手名单读取失败：${it.message}") }
@@ -24,10 +26,10 @@ internal class NativeTrackNavigation(private val loader: ClassLoader, artistName
             dispatch { open(albumRoute.newInstance(presentation.album, presentation.albumArtist)) }
         })
         return listOfNotNull(
-            NativeGlassMenu.Entry.destinations("转到歌手页", artists.map { name ->
+            NativeGlassMenu.Entry.destinations("转到歌手页", label, artists.map { name ->
                 name to { dispatch { open(artistRoute.newInstance(name)) } }
             }),
-            NativeGlassMenu.Entry.destinations("转到专辑", albums),
+            NativeGlassMenu.Entry.destinations("转到专辑", label, albums),
         )
     }
 

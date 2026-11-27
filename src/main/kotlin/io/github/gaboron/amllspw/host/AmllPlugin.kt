@@ -33,7 +33,7 @@ class AmllPlugin(context: PluginContext) : SpwPlugin(context) {
                 NativeLyricsContent(created, arguments.modifier, true, menu)
             }
             runCatching {
-                val player = NativePlayerContent(NativePlayerTarget.discover())
+                val player = NativePlayerContent(NativePlayerTarget.discover(), menu)
                 playerHandle = player
                 player.install(created)
             }.onFailure {

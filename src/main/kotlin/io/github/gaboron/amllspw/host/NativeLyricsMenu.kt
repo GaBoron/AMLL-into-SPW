@@ -32,6 +32,12 @@ internal class NativeLyricsMenu private constructor(
     private val divider: Method,
 ) {
     @Composable
+    fun Label(text: String, enabled: Boolean = true) {
+        val icon: @Composable () -> Unit = {}
+        label.invoke(null, text, Modifier, icon, enabled, currentComposer, 0, 0)
+    }
+
+    @Composable
     fun Popup(position: PopupPositionProvider, dismiss: () -> Unit, entries: List<LyricMenuItem>) {
         val content: (Any) -> Unit = { scope ->
             entries.forEach { entry ->
@@ -39,8 +45,7 @@ internal class NativeLyricsMenu private constructor(
                 val draw: @Composable () -> Unit = {
                     val checked = entry.checked
                     if (checked == null) {
-                        val icon: @Composable () -> Unit = {}
-                        label.invoke(null, entry.text, Modifier, icon, entry.enabled, currentComposer, 0, 0)
+                        Label(entry.text, entry.enabled)
                     } else {
                         checkLabel.invoke(null, checked, entry.text, entry.enabled, currentComposer, 0, 0)
                     }

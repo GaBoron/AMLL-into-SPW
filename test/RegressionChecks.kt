@@ -8,5 +8,6 @@ object RegressionChecks {
         verifyConcurrentFooterUpdate()
         verifyHostLyricsAvailability()
         verifyPlayerExtensions()
+        verifyGlassSubmenuMotion()
     }
 }
