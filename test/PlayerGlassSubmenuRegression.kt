@@ -16,6 +16,8 @@ internal fun verifyGlassSubmenuMotion() {
     check(GlassSubmenuMotion.items(.04f) == 0f && GlassSubmenuMotion.items(.2f) in 0f..1f &&
         GlassSubmenuMotion.items(.41f) == 1f)
     check(GlassSubmenuMotion.parentScale(1, 0f) == 1f && GlassSubmenuMotion.parentScale(1, 1f) < 1f)
+    val parent = GlassSubmenuMotion.parentOutline(Rect(0f, 0f, 280f, 300f), 100f, .95f, 1f)
+    check(parent.boundingRect == Rect(14f, 5f, 280f, 290f))
     check(GlassSubmenuMotion.stackExtent(240, 400, .5f) == 320)
     println("Glass submenu: opener and card bounds, staged reveal, parent recession, and viewport growth passed")
 }
