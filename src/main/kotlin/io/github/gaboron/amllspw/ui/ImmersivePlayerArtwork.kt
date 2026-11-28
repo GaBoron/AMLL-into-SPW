@@ -30,11 +30,12 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.gaboron.amllspw.cover.ImmersiveCover
 import io.github.gaboron.amllspw.cover.ImmersiveBackdropSamples
+import io.github.gaboron.amllspw.cover.ImmersiveBackdropTone
 import io.github.gaboron.amllspw.cover.ImmersiveCoverRenderer
 import io.github.gaboron.amllspw.cover.ImmersiveInk
 import io.github.gaboron.amllspw.cover.blendImmersiveColors
-import io.github.gaboron.amllspw.cover.immersiveInk
 import io.github.gaboron.amllspw.cover.immersiveInkFamily
+import io.github.gaboron.amllspw.cover.immersivePagePalette
 import io.github.gaboron.amllspw.cover.prepareImmersiveCover
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -45,8 +46,10 @@ import org.jetbrains.skia.RuntimeEffect
 
 internal data class ImmersiveArtwork(val effect: RuntimeEffect, val cover: ImmersiveCover, val accent: Int)
 internal data class ImmersiveArtworkLayer(val artwork: ImmersiveArtwork, val weight: Float)
-internal data class ImmersivePlayerInk(val lyrics: ImmersiveInk, val controls: ImmersiveInk,
-    val header: ImmersiveInk, val corner: ImmersiveInk)
+internal data class ImmersivePlayerPalette(val ink: ImmersiveInk, val tones: List<ImmersiveBackdropTone?>)
+private data class ImmersiveArtworkColors(
+    val regions: List<IntArray>?, val surroundings: IntArray, val tone: ImmersiveBackdropTone?,
+)
 
 internal val LocalImmersiveControlInk = staticCompositionLocalOf<ImmersiveInk?> { null }
 
@@ -57,10 +60,10 @@ internal fun ImmersiveControlInk(ink: ImmersiveInk?, content: @Composable () -> 
 }
 
 @Composable
-internal fun rememberImmersivePlayerInk(layers: List<ImmersiveArtworkLayer>, style: AmllPlayerStyle, targetCover: Rect,
-    lyricTop: Float, hiddenLyrics: Boolean, colored: Boolean): ImmersivePlayerInk {
+internal fun rememberImmersivePlayerPalette(layers: List<ImmersiveArtworkLayer>, style: AmllPlayerStyle, targetCover: Rect,
+    lyricTop: Float, hiddenLyrics: Boolean, colored: Boolean, hasCornerControls: Boolean = false): ImmersivePlayerPalette {
     val density = LocalDensity.current.density
-    val regions = remember(style, targetCover, lyricTop, hiddenLyrics, density) {
+    val regions = remember(style, targetCover, lyricTop, hiddenLyrics, density, hasCornerControls) {
         fun bounds(left: Float, top: Float, right: Float, bottom: Float) =
             Rect(left * density, top * density, right * density, bottom * density)
         val lyrics = bounds(style.lyricContentLeft, lyricTop, style.lyricContentRight,
@@ -74,36 +77,44 @@ internal fun rememberImmersivePlayerInk(layers: List<ImmersiveArtworkLayer>, sty
             bounds(style.edge + style.smallCover + style.em, style.smallHeaderTop,
                 style.width - style.edge, style.smallHeaderTop + style.smallCover) else controls
         val cornerRight = style.width - style.em * 2
-        listOf(lyrics, controls, header, bounds(cornerRight - 40, style.height - 56, cornerRight, style.height - 16))
+        buildList {
+            if (!hiddenLyrics) add(lyrics)
+            add(header)
+            if (hasCornerControls) add(bounds(cornerRight - 40, style.height - 56, cornerRight, style.height - 16))
+        }
     }
-    val sampled = layers.map { layer ->
+    val samples = layers.map { layer ->
         val artwork = layer.artwork
         key(artwork) {
             remember(artwork, regions, style.width, style.height, targetCover, density) {
                 val pageAnchor = Rect(targetCover.left * density, targetCover.top * density,
                     targetCover.right * density, targetCover.bottom * density)
-                if (style.width > 0f && style.height > 0f) runCatching {
+                val sampled = if (style.width > 0f && style.height > 0f) runCatching {
                     val samples = ImmersiveBackdropSamples.render(artwork.effect, artwork.cover, style.width * density,
                         style.height * density, pageAnchor)
                     regions.map(samples::colors)
                 }.getOrNull() else null
+                val surroundings = artwork.cover.surroundings.toIntArray()
+                // Fade each finished backdrop as a unit. Recalculating its correction on every
+                // frame could switch between lifting shadows and dimming highlights mid-transition.
+                val tone = immersivePagePalette(sampled ?: listOf(surroundings), null).backdropTone
+                fun corrected(colors: IntArray): IntArray {
+                    return if (tone == null) colors else IntArray(colors.size) { tone.color(colors[it]) }
+                }
+                ImmersiveArtworkColors(sampled?.map(::corrected), corrected(surroundings), tone)
             }
         }
     }
-    return remember(layers, regions, sampled, style.vertical, hiddenLyrics, colored) {
+    return remember(layers, samples, colored) {
         val weights = layers.map { it.weight }
         val surroundings = layers.map { it.artwork.cover.surroundings.toIntArray() }
-        val fallback = blendImmersiveColors(surroundings, weights)
-        val blended = if (sampled.all { it != null }) List(regions.size) { region ->
-            blendImmersiveColors(sampled.map { checkNotNull(it)[region] }, weights)
-        } else List(regions.size) { fallback }
+        val blended = if (samples.all { it.regions != null }) {
+            List(regions.size) { region -> blendImmersiveColors(samples.map { checkNotNull(it.regions)[region] }, weights) }
+        } else listOf(blendImmersiveColors(samples.map { it.surroundings }, weights))
         val accent = blendImmersiveColors(layers.map { intArrayOf(it.artwork.accent) }, weights).single()
-        val family = if (colored) immersiveInkFamily(accent, fallback) else null
-        val main = if (style.vertical && !hiddenLyrics) 2 else 1
-        val active = if (hiddenLyrics) blended[main] else blended[0] + blended[main]
-        val shared = immersiveInk(active, family, colored).takeUnless { it.needsOutline }?.primary
-        fun ink(region: Int) = immersiveInk(blended[region], family, colored, preferred = shared)
-        ImmersivePlayerInk(ink(0), ink(1), if (main == 2) ink(2) else ink(1), ink(3))
+        val family = if (colored) immersiveInkFamily(accent, blendImmersiveColors(surroundings, weights)) else null
+        val page = immersivePagePalette(blended, family, adjustBackdrop = false)
+        ImmersivePlayerPalette(page.ink, samples.map { it.tone })
     }
 }
 
@@ -160,10 +171,12 @@ internal fun rememberImmersiveArtworkLayers(artwork: ImmersiveArtwork, reducedMo
 }
 
 @Composable
-internal fun ImmersivePlayerBackground(layers: List<ImmersiveArtworkLayer>, anchor: Rect) {
+internal fun ImmersivePlayerBackground(layers: List<ImmersiveArtworkLayer>, anchor: Rect,
+    tones: List<ImmersiveBackdropTone?>) {
     Box(Modifier.fillMaxSize()) {
         var covered = 0f
-        for ((artwork, weight) in layers) {
+        for ((index, layer) in layers.withIndex()) {
+            val (artwork, weight) = layer
             covered += weight
             // SrcOver opacity is conditional on the weight already below this layer.
             val opacity = (weight / covered).coerceIn(0f, 1f)
@@ -174,7 +187,7 @@ internal fun ImmersivePlayerBackground(layers: List<ImmersiveArtworkLayer>, anch
                 Canvas(modifier.fillMaxSize()) {
                     val bounds = SkiaRect.makeLTRB(anchor.left.dp.toPx(), anchor.top.dp.toPx(),
                         anchor.right.dp.toPx(), anchor.bottom.dp.toPx())
-                    drawIntoCanvas { renderer.draw(it.skiaCanvas, size.width, size.height, bounds) }
+                    drawIntoCanvas { renderer.draw(it.skiaCanvas, size.width, size.height, bounds, tones[index]) }
                 }
             }
         }

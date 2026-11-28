@@ -1,6 +1,8 @@
 package io.github.gaboron.amllspw.cover
 
 import kotlin.math.pow
+import kotlin.math.cbrt
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private const val BLACK = 0xff000000.toInt()
@@ -18,16 +20,40 @@ internal data class ImmersiveInk(
     val rail: Int,
     val bubble: Int,
     val bubbleText: Int,
-    val dark: Boolean,
-    val needsOutline: Boolean,
 )
 
-/** Contrasts against both ends of the visible background range, with isolated texture peaks trimmed. */
-internal fun immersiveInk(background: IntArray, family: OklabColor?, colored: Boolean, preferred: Int? = null): ImmersiveInk {
-    val levels = DoubleArray(background.size) { inkLuminance(background[it]) }.apply { sort() }
-    val trim = (levels.lastIndex * .025).toInt()
-    val darkest = levels[trim]
-    val lightest = levels[levels.lastIndex - trim]
+internal data class ImmersiveBackdropTone(val darken: Boolean, val knee: Double, val compression: Double) {
+    fun luminance(level: Double): Double {
+        val value = if (darken) level else 1 - level
+        val above = (value - knee).coerceAtLeast(0.0)
+        val mapped = value - above + above / (1 + compression * above)
+        return if (darken) mapped else 1 - mapped
+    }
+
+    fun color(rgb: Int): Int {
+        val source = inkLuminance(rgb)
+        val mapped = luminance(source)
+        if (abs(mapped - source) < 1e-8) return rgb
+        val factor = if (darken) mapped / source else (mapped - source) / (1 - source)
+        fun channel(shift: Int): Int {
+            val level = linearSrgb[component(rgb, shift)]
+            val adjusted = if (darken) level * factor else level + (1 - level) * factor
+            val encoded = if (adjusted <= .0031308) adjusted * 12.92 else 1.055 * adjusted.pow(1 / 2.4) - .055
+            return (encoded * 255).roundToInt().coerceIn(0, 255) shl shift
+        }
+        return BLACK or channel(16) or channel(8) or channel(0)
+    }
+}
+
+internal data class ImmersivePagePalette(val ink: ImmersiveInk, val backdropTone: ImmersiveBackdropTone?)
+
+/** Keep one ink across all visible regions, even when the artwork spans both polarities. */
+internal fun immersivePagePalette(regions: List<IntArray>, family: OklabColor?,
+    adjustBackdrop: Boolean = true): ImmersivePagePalette {
+    val regionalLevels = regions.map { colors -> DoubleArray(colors.size) { inkLuminance(colors[it]) }.apply { sort() } }
+    // Trim isolated texture peaks per region so a small player component still counts.
+    val darkest = regionalLevels.minOf { it[(it.lastIndex * .025).toInt()] }
+    val lightest = regionalLevels.maxOf { it[it.lastIndex - (it.lastIndex * .025).toInt()] }
     fun contrast(ink: Int): Double {
         val level = inkLuminance(ink)
         return when {
@@ -38,10 +64,7 @@ internal fun immersiveInk(background: IntArray, family: OklabColor?, colored: Bo
     }
     val prefersDark = contrast(BLACK) >= contrast(WHITE)
     val neutral = if (prefersDark) BLACK else WHITE
-    val maximum = contrast(neutral)
-    val minimum = minOf(READABLE, maximum)
-    val shared = preferred?.takeIf { contrast(it) >= READABLE }
-    val selected = if (shared == null && colored && family != null && maximum >= READABLE) {
+    val selected = if (family != null && contrast(neutral) >= READABLE) {
         // Preserve the hue as tone is adjusted. The Oklab converter reduces chroma
         // when the selected tone falls outside the sRGB gamut.
         fun candidates(dark: Boolean, threshold: Double): Int? {
@@ -53,20 +76,40 @@ internal fun immersiveInk(background: IntArray, family: OklabColor?, colored: Bo
         candidates(prefersDark, COMFORTABLE) ?: candidates(!prefersDark, COMFORTABLE)
             ?: candidates(prefersDark, READABLE) ?: candidates(!prefersDark, READABLE)
     } else null
-    val primary = shared ?: selected ?: neutral
-    val dark = inkLuminance(primary) <= darkest
-    val average = averageInkColor(background)
+    val tone = if (adjustBackdrop && contrast(neutral) < READABLE) {
+        fun correction(darken: Boolean): ImmersiveBackdropTone {
+            // Leave headroom for rounding and the artwork beneath an antialiased pixel.
+            val limit = if (darken) 1.05 / 4.58 - .05 else 1 - (4.58 * .05 - .05)
+            val knee = limit - .045
+            val peak = if (darken) lightest else 1 - darkest
+            return ImmersiveBackdropTone(darken, knee, 1 / (limit - knee) - 1 / (peak - knee))
+        }
+        fun cost(candidate: ImmersiveBackdropTone) = regionalLevels.sumOf { levels ->
+            levels.sumOf { abs(cbrt(candidate.luminance(it)) - cbrt(it)) } / levels.size
+        }
+        val shade = correction(true)
+        val lift = correction(false)
+        if (cost(shade) <= cost(lift)) shade else lift
+    } else null
+    val primary = if (tone != null) {
+        if (tone.darken) WHITE else BLACK
+    } else selected ?: neutral
+    val dark = inkLuminance(primary) < .5
+    val rawAverage = averageInkColor(regions.reduce { combined, region -> combined + region })
+    val average = tone?.color(rawAverage) ?: rawAverage
     val secondary = (7 downTo 1).asSequence().map { mixInk(primary, average, it * .04) }
-        .firstOrNull { contrast(it) >= minimum } ?: primary
+        .firstOrNull {
+            val base = if (dark) darkest else lightest
+            inkContrast(inkLuminance(it), tone?.luminance(base) ?: base) >= READABLE
+        } ?: primary
     val bubble = if (dark) {
-        family.takeIf { colored }?.toRgb(.24) ?: 0xff252525.toInt()
+        family?.toRgb(.24) ?: 0xff252525.toInt()
     } else {
-        family.takeIf { colored }?.toRgb(.94) ?: 0xffededed.toInt()
+        family?.toRgb(.94) ?: 0xffededed.toInt()
     }
     val bubbleText = if (inkContrast(inkLuminance(BLACK), inkLuminance(bubble)) >=
         inkContrast(inkLuminance(WHITE), inkLuminance(bubble))) BLACK else WHITE
-    return ImmersiveInk(primary, secondary, mixInk(primary, average, .81), bubble, bubbleText,
-        dark, contrast(primary) < READABLE)
+    return ImmersivePagePalette(ImmersiveInk(primary, secondary, mixInk(primary, average, .81), bubble, bubbleText), tone)
 }
 
 /** Share an analogous, restrained hue across the lyrics and controls. */

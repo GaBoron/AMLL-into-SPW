@@ -18,22 +18,20 @@ import io.github.gaboron.amllspw.cover.coverBackdropProfile
 import io.github.gaboron.amllspw.cover.coverDetailMask
 import io.github.gaboron.amllspw.cover.coverEdgeMatte
 import io.github.gaboron.amllspw.cover.extractCoverMaterial
-import io.github.gaboron.amllspw.cover.immersiveInk
+import io.github.gaboron.amllspw.cover.immersivePagePalette
 import io.github.gaboron.amllspw.cover.immersiveInkFamily
 import io.github.gaboron.amllspw.cover.inkContrast
 import io.github.gaboron.amllspw.cover.inkLuminance
 import io.github.gaboron.amllspw.cover.OklabColor
 import io.github.gaboron.amllspw.cover.prepareImmersiveCover
 import io.github.gaboron.amllspw.cover.trimCoverMatte
-import io.github.gaboron.amllspw.ui.playerInkOutline
 import io.github.gaboron.amllspw.ui.AmllPlayerStyle
 import io.github.gaboron.amllspw.ui.ImmersiveArtwork
 import io.github.gaboron.amllspw.ui.ImmersivePlayerBackground
-import io.github.gaboron.amllspw.ui.ImmersivePlayerInk
+import io.github.gaboron.amllspw.ui.ImmersivePlayerPalette
 import io.github.gaboron.amllspw.ui.rememberImmersiveArtworkLayers
-import io.github.gaboron.amllspw.ui.rememberImmersivePlayerInk
+import io.github.gaboron.amllspw.ui.rememberImmersivePlayerPalette
 import org.jetbrains.skia.Bitmap
-import org.jetbrains.skia.Paint
 import org.jetbrains.skia.Rect
 import org.jetbrains.skia.Surface
 import java.awt.image.BufferedImage
@@ -65,8 +63,7 @@ internal fun verifyImmersiveCover() {
     verifyImmersiveRendering()
     verifyImmersiveInk()
     verifyImmersiveTransition()
-    verifyForegroundOutline()
-    println("Immersive cover: edge matting, adaptive texture, artwork crossfade, shared ink and outline fallback passed")
+    println("Immersive cover: edge matting, adaptive texture, artwork crossfade and shared foreground contrast passed")
 }
 
 private fun verifyCoverEdgeMatte() {
@@ -164,25 +161,37 @@ private fun verifyImmersiveInk() {
     val darkColors = IntArray(80) { dark }
     val family = immersiveInkFamily(accent, darkColors)
     fun contrast(a: Int, b: Int) = inkContrast(inkLuminance(a), inkLuminance(b))
-    check(immersiveInk(lightColors, family, false).primary == black)
-    check(immersiveInk(darkColors, family, false).primary == white)
-    check(immersiveInk(intArrayOf(0xff777777.toInt()), null, false).primary == black)
+    check(immersivePagePalette(listOf(lightColors, intArrayOf(0xffd3e2ee.toInt())), null).let {
+        it.ink.primary == black && it.backdropTone == null
+    })
+    check(immersivePagePalette(listOf(darkColors, intArrayOf(0xff43332d.toInt())), null).let {
+        it.ink.primary == white && it.backdropTone == null
+    })
     for ((colors, base) in listOf(lightColors to light, darkColors to dark)) {
-        val ink = immersiveInk(colors, family, true)
-        check(!ink.needsOutline && contrast(ink.primary, base) >= 4.5 && contrast(ink.secondary, base) >= 4.5)
+        val palette = immersivePagePalette(listOf(colors), family)
+        val ink = palette.ink
+        check(palette.backdropTone == null && contrast(ink.primary, base) >= 4.5 && contrast(ink.secondary, base) >= 4.5)
         check(OklabColor.fromRgb(ink.primary).chroma > .02)
         check(contrast(ink.bubbleText, ink.bubble) >= 7.0)
         check(contrast(ink.primary, ink.rail) >= 3.0)
     }
-    check(immersiveInk(intArrayOf(black, white), family, false).needsOutline)
     check(immersiveInkFamily(white, IntArray(20) { white }) == null)
     val middle = intArrayOf(0xff777777.toInt())
-    val mediumInk = immersiveInk(middle, family, true)
-    check(contrast(mediumInk.primary, middle.single()) >= 4.5 && !mediumInk.needsOutline)
+    check(immersivePagePalette(listOf(middle), null).ink.primary == black)
+    val medium = immersivePagePalette(listOf(middle), family)
+    val mediumInk = medium.ink
+    check(contrast(mediumInk.primary, middle.single()) >= 4.5 && medium.backdropTone == null)
     check(mediumInk.primary != black && mediumInk.primary != white) { "An eligible chromatic ink was ignored" }
-    val shared = immersiveInk(lightColors, family, true).primary
-    check(immersiveInk(intArrayOf(0xffd3e2ee.toInt()), family, true, shared).primary == shared)
-    check(immersiveInk(darkColors, family, true, shared).primary != shared)
+
+    val orange = 0xffb8753e.toInt()
+    val warm = immersivePagePalette(listOf(intArrayOf(orange), darkColors), family)
+    val shade = checkNotNull(warm.backdropTone)
+    check(warm.ink.primary == white && shade.darken && shade.color(dark) == dark)
+    check(contrast(warm.ink.primary, shade.color(orange)) >= 4.5)
+    val bright = immersivePagePalette(listOf(intArrayOf(white), darkColors), null)
+    val lift = checkNotNull(bright.backdropTone)
+    check(bright.ink.primary == black && !lift.darken && lift.color(white) == white)
+    check(contrast(bright.ink.primary, lift.color(dark)) >= 4.5)
     check(blendImmersiveColors(listOf(intArrayOf(black), intArrayOf(white)), listOf(.75f, .25f)).single() ==
         0xff404040.toInt())
 
@@ -193,8 +202,24 @@ private fun verifyImmersiveInk() {
         val sample = ImmersiveBackdropSamples.render(effect, cover, 960f, 560f, ComposeRect(220f, 56f, 650f, 486f))
         val left = sample.colors(ComposeRect(270f, 170f, 380f, 400f))
         val right = sample.colors(ComposeRect(485f, 170f, 590f, 400f))
-        check(immersiveInk(left, null, false).primary == white)
-        check(immersiveInk(right, null, false).primary == black)
+        check(immersivePagePalette(listOf(left), null).ink.primary == white)
+        check(immersivePagePalette(listOf(right), null).ink.primary == black)
+        val tone = checkNotNull(immersivePagePalette(listOf(left, right), null).backdropTone)
+        ImmersiveCoverRenderer(effect, cover).use { renderer ->
+            Surface.makeRasterN32Premul(960, 560).use { surface ->
+                renderer.draw(surface.canvas, 960f, 560f, Rect.makeXYWH(220f, 56f, 430f, 430f), tone)
+                val result = Bitmap()
+                result.use {
+                    check(it.allocPixels(surface.imageInfo) && surface.readPixels(it, 0, 0))
+                    check(it.getColor(330, 250) == black && it.getColor(540, 250) == white) {
+                        "Background correction modified opaque artwork pixels"
+                    }
+                    val foreground = if (tone.darken) white else black
+                    check(contrast(foreground, it.getColor(20, 250)) >= 4.5 &&
+                        contrast(foreground, it.getColor(930, 250)) >= 4.5)
+                }
+            }
+        }
     }
 }
 
@@ -211,13 +236,17 @@ private fun verifyImmersiveTransition() {
         val gray = artwork(0xff585858.toInt())
         val target = mutableStateOf(black)
         val style = AmllPlayerStyle(320f, 240f)
-        val anchor = ComposeRect(20f, 30f, 100f, 110f)
-        var inkNow: ImmersivePlayerInk? = null
+        val anchor = style.cover(false)
+        val split = BufferedImage(128, 128, BufferedImage.TYPE_INT_RGB).apply {
+            setRGB(0, 0, 128, 128, IntArray(128 * 128) { if (it / 128 < 64) -1 else 0xff302317.toInt() }, 0, 128)
+        }
+        val mixedBackdrop = ImmersiveArtwork(effect, prepareImmersiveCover(split.toComposeImageBitmap()) {}, -1)
+        var paletteNow: ImmersivePlayerPalette? = null
         val scene = ImageComposeScene(width = 320, height = 240) {
             val layers = rememberImmersiveArtworkLayers(target.value, false)
-            val ink = rememberImmersivePlayerInk(layers, style, anchor, 42f, false, false)
-            SideEffect { inkNow = ink }
-            ImmersivePlayerBackground(layers, anchor)
+            val palette = rememberImmersivePlayerPalette(layers, style, anchor, 42f, false, false)
+            SideEffect { paletteNow = palette }
+            ImmersivePlayerBackground(layers, anchor, palette.tones)
         }
         try {
             fun channel(ms: Long): Int = scene.render(1_000_000L * ms).use { image ->
@@ -229,50 +258,28 @@ private fun verifyImmersiveTransition() {
             channel(32)
             val intermediate = channel(260)
             check(intermediate in 15..240) { "Opposite-polarity artwork switched without a crossfade ($intermediate)" }
-            val inBetween = checkNotNull(inkNow)
-            check(inBetween.controls.primary == inBetween.lyrics.primary && !inBetween.lyrics.needsOutline)
+            val inBetween = checkNotNull(paletteNow)
+            val background = 0xff000000.toInt() or (intermediate shl 16) or (intermediate shl 8) or intermediate
+            check(inBetween.tones.all { it == null } && inkContrast(inkLuminance(inBetween.ink.primary),
+                inkLuminance(background)) >= 4.5)
             target.value = gray
             val retargeted = channel(276)
             check(abs(intermediate - retargeted) <= 32) { "Rapid track change discarded the displayed mix" }
             channel(300)
             channel(840)
             check(channel(900) == 88)
+
+            target.value = mixedBackdrop
+            channel(932)
+            channel(948)
+            val mixedFade = channel(1160)
+            val fadeTone = checkNotNull(checkNotNull(paletteNow).tones.last())
+            channel(1450)
+            val mixedFinal = channel(1480)
+            check(checkNotNull(paletteNow).tones.single() == fadeTone) { "Backdrop tone shifted mid-crossfade" }
+            check(mixedFade in minOf(88, mixedFinal)..maxOf(88, mixedFinal)) { "Backdrop flashed during the crossfade" }
         } finally {
             scene.close()
-        }
-    }
-}
-
-private fun verifyForegroundOutline() {
-    val source = BufferedImage(128, 128, BufferedImage.TYPE_INT_RGB)
-    source.setRGB(0, 0, 128, 128, IntArray(128 * 128) { -1 }, 0, 128)
-    val cover = prepareImmersiveCover(source.toComposeImageBitmap()) {}
-    ImmersiveCoverRenderer.makeEffect().use { effect ->
-        ImmersiveCoverRenderer(effect, cover).use { renderer ->
-            Surface.makeRasterN32Premul(640, 320).use { surface ->
-                renderer.draw(surface.canvas, 640f, 320f, Rect.makeXYWH(80f, 40f, 172f, 172f))
-                val canvas = surface.canvas
-                playerInkOutline(1f).use { outline ->
-                    Paint().use { effectPaint ->
-                        effectPaint.imageFilter = outline
-                        canvas.saveLayer(Rect.makeXYWH(300f, 100f, 200f, 100f), effectPaint)
-                        Paint().use { foreground ->
-                            foreground.color = -1
-                            canvas.drawRect(Rect.makeXYWH(350f, 120f, 4f, 60f), foreground)
-                        }
-                        canvas.restore()
-                    }
-                }
-                Bitmap().use { result ->
-                    check(result.allocPixels(surface.imageInfo))
-                    check(surface.readPixels(result, 0, 0))
-                    fun light(x: Int, y: Int) = result.getColor(x, y) and 255
-                    check(light(349, 125) < 80 && light(350, 125) == 255)
-                    check(light(348, 125) == 255 && light(165, 125) == 255 && light(550, 248) == 255) {
-                        "Foreground contrast changed the artwork away from the glyph"
-                    }
-                }
-            }
         }
     }
 }

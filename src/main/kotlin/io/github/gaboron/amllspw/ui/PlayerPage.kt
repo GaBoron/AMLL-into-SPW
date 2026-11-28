@@ -87,11 +87,12 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
                     blend(shown.right, hidden.right), blend(shown.bottom, hidden.bottom))
                 val controlsTop = if (style.vertical) cover.bottom + style.em else style.controlsTop
                 val lyricTop = if (style.vertical) style.lyricTop else maxOf(30f, style.coverTop - style.height * .04f)
-                val ink = if (immersiveLayers.isNotEmpty()) {
-                    rememberImmersivePlayerInk(immersiveLayers, style, if (hiddenLyrics) hidden else shown,
-                        lyricTop, hiddenLyrics, options.coloredLyrics)
+                val palette = if (immersiveLayers.isNotEmpty()) {
+                    rememberImmersivePlayerPalette(immersiveLayers, style, if (hiddenLyrics) hidden else shown,
+                        lyricTop, hiddenLyrics, options.coloredLyrics, hasCornerControls = cornerControls != null)
                 } else null
-                if (ink != null) ImmersivePlayerBackground(immersiveLayers, cover)
+                val ink = palette?.ink
+                if (palette != null) ImmersivePlayerBackground(immersiveLayers, cover, palette.tones)
                 else PlayerBackground(presentation, options.reducedMotion)
                 val menu: @Composable () -> Unit = {
                     if (pageMenu != null) pageMenu(style.menuSize)
@@ -108,16 +109,12 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
                     val controlsWidth = if (style.vertical) style.width - style.edge * 2f else style.coverSize
                     val controlsHeight = if (style.vertical) (style.height - controlsTop - 24f).coerceAtLeast(style.verticalControlsHeight)
                         else style.controlsHeight
-                    val outline = ink?.controls?.takeIf { it.needsOutline }?.let { rememberPlayerInkOutline(it.dark) }
-                    ImmersiveControlInk(ink?.controls) {
+                    ImmersiveControlInk(ink) {
                         PlayerControls(presentation, style, options,
                             Modifier.offset((if (style.vertical) style.edge else cover.left).dp, controlsTop.dp)
                                 .size(controlsWidth.dp, controlsHeight.dp)
                                 .zIndex(1f)
-                                .graphicsLayer {
-                                    alpha = if (style.vertical) movement else 1f
-                                    renderEffect = outline
-                                },
+                                .graphicsLayer { alpha = if (style.vertical) movement else 1f },
                             readPlayback, onSeek, { command ->
                                 if (command == "previous" || command == "next") coverDirection = if (command == "previous") -1 else 1
                                 transportState.request(command)
@@ -127,15 +124,12 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
                     }
                 }
                 if (style.vertical && lyricVisibility > .001f) {
-                    val outline = ink?.header?.takeIf { it.needsOutline }?.let { rememberPlayerInkOutline(it.dark) }
                     Row(Modifier.offset(style.edge.dp, style.smallHeaderTop.dp).width((style.width - style.edge * 2).dp)
-                        .height(style.smallCover.dp).zIndex(1f).graphicsLayer {
-                            alpha = lyricVisibility
-                            renderEffect = outline
-                        }, verticalAlignment = Alignment.CenterVertically) {
+                        .height(style.smallCover.dp).zIndex(1f).graphicsLayer { alpha = lyricVisibility },
+                        verticalAlignment = Alignment.CenterVertically) {
                         Spacer(Modifier.width((style.smallCover + style.em).dp))
                         Box(Modifier.weight(1f)) {
-                            ImmersiveControlInk(ink?.header) {
+                            ImmersiveControlInk(ink) {
                                 PlayerTrackInfo(presentation, style.smallInfoSize, options.reducedMotion, menu)
                             }
                         }
@@ -146,27 +140,21 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
                     val height = style.height - top - if (style.vertical) 0f else 48f
                     val position = if (style.vertical) .1f else ((style.coverCenter - top) / height).coerceIn(0f, 1f)
                     val fontSize = maxOf(style.height * .05f, style.width * .025f, 14f).toInt()
-                    val lyricInk = ink?.lyrics
-                    val outline = lyricInk?.takeIf { it.needsOutline }?.let { rememberPlayerInkOutline(it.dark) }
                     CompositionLocalProvider(LocalPlayerLyricFraming provides PlayerLyricFraming(position,
-                        if (style.vertical) 0f else .5f, fontSize, lyricInk?.let { Color(it.primary) } ?: color,
-                        style.lyricDrawingPadding, adaptiveInk = lyricInk != null)) {
+                        if (style.vertical) 0f else .5f, fontSize, ink?.let { Color(it.primary) } ?: color,
+                        style.lyricDrawingPadding, adaptiveInk = ink != null)) {
                         Box(Modifier.offset(style.lyricCanvasLeft.dp, top.dp).size(style.lyricCanvasWidth.dp, height.dp)
                             .graphicsLayer {
                                 alpha = lyricVisibility
                                 translationX = (1f - lyricVisibility) * 40.dp.toPx()
                                 scaleX = .97f + .03f * lyricVisibility
                                 scaleY = scaleX
-                                renderEffect = outline
                             }) { lyrics() }
                     }
                 }
                 if (cornerControls != null) {
-                    val outline = ink?.corner?.takeIf { it.needsOutline }?.let { rememberPlayerInkOutline(it.dark) }
                     Box(Modifier.align(Alignment.BottomEnd).padding(end = (style.em * 2).dp, bottom = 16.dp).zIndex(2f)) {
-                        Box(if (outline == null) Modifier else Modifier.graphicsLayer { renderEffect = outline }) {
-                            ImmersiveControlInk(ink?.corner) { cornerControls(40f) }
-                        }
+                        ImmersiveControlInk(ink) { cornerControls(40f) }
                     }
                 }
             }

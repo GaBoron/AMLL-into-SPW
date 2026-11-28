@@ -38,11 +38,13 @@ internal class ImmersiveCoverRenderer(effect: RuntimeEffect, cover: ImmersiveCov
         }
     }
 
-    fun draw(canvas: Canvas, width: Float, height: Float, anchor: Rect) {
+    fun draw(canvas: Canvas, width: Float, height: Float, anchor: Rect, tone: ImmersiveBackdropTone? = null) {
         // A narrow viewport can collapse the layout slot. Keep the background defined in that case.
         builder.uniform("anchor", (anchor.left + anchor.right) / 2f, (anchor.top + anchor.bottom) / 2f,
             anchor.width.coerceAtLeast(1f))
         builder.uniform("viewport", width, height)
+        builder.uniform("backdropTone", if (tone?.darken == true) 1f else 0f,
+            tone?.knee?.toFloat() ?: 0f, tone?.compression?.toFloat() ?: 0f)
         builder.makeShader().use { shader ->
             paint.shader = shader
             try {
@@ -68,6 +70,7 @@ internal class ImmersiveCoverRenderer(effect: RuntimeEffect, cover: ImmersiveCov
             uniform float3 anchor;
             uniform float2 viewport;
             uniform float2 profile;
+            uniform float3 backdropTone;
             uniform float3 surrounding0;
             uniform float3 surrounding1;
             uniform float3 surrounding2;
@@ -126,6 +129,16 @@ internal class ImmersiveCoverRenderer(effect: RuntimeEffect, cover: ImmersiveCov
                 return mix(upper, lower, weight.y);
             }
 
+            float3 adjustBackdrop(float3 color) {
+                bool darken = backdropTone.x > 0.5;
+                float luminance = dot(color, float3(0.2126, 0.7152, 0.0722));
+                float value = darken ? luminance : 1.0 - luminance;
+                float above = max(0.0, value - backdropTone.y);
+                if (above <= 0.0) return color;
+                float mapped = value - above + above / (1.0 + backdropTone.z * above);
+                return darken ? color * (mapped / value) : mix(color, float3(1.0), (value - mapped) / value);
+            }
+
             half4 main(float2 pixel) {
                 float2 cropRatio = crop.zw / max(crop.z, crop.w);
                 float2 p = (pixel - anchor.xy) / (anchor.z * cropRatio);
@@ -146,9 +159,11 @@ internal class ImmersiveCoverRenderer(effect: RuntimeEffect, cover: ImmersiveCov
                 float joinTexture = mix(0.22, 1.0, matte.g);
                 textureAmount *= mix(joinTexture, 1.0, smoothstep(0.50, 0.76, radius));
                 half3 background = clamp(broadColor(pixel, p) + surfaceDetail(pixel) * textureAmount, 0.0, 1.0);
-                if (weight <= 0.0) return half4(background, 1.0);
+                if (weight <= 0.0 && backdropTone.z <= 0.0) return half4(background, 1.0);
+                float3 linearBackground = toLinearSrgb(background);
+                if (backdropTone.z > 0.0) linearBackground = adjustBackdrop(linearBackground);
                 // Blending in linear light avoids a dark fringe on light artwork.
-                half3 mixed = fromLinearSrgb(mix(toLinearSrgb(background), toLinearSrgb(coverColor), weight));
+                half3 mixed = fromLinearSrgb(mix(linearBackground, toLinearSrgb(coverColor), weight));
                 return half4(mixed, 1.0);
             }
         """.trimIndent())
