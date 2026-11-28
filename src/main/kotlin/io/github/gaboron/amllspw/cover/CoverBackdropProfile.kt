@@ -54,8 +54,9 @@ internal fun coverBackdropProfile(source: IntArray): CoverBackdropProfile {
     // Paper and solid black sleeves tolerate less color leakage from printed subjects.
     val neutralGround = minOf(r, g, b) >= 215 || maxOf(r, g, b) <= 30
     val uniform = if (neutralGround) ease(.48f, .68f, coverage) else ease(.56f, .78f, coverage)
-    val texture = ease(.11f, .44f, microtexture.toFloat() / candidates.size)
-    return CoverBackdropProfile(ground, uniform, .85f + texture * .95f - uniform * .12f)
+    // A few busy boundaries should not turn the whole backdrop into a textured surface.
+    val texture = ease(.26f, .57f, microtexture.toFloat() / candidates.size)
+    return CoverBackdropProfile(ground, uniform, .12f + texture * .92f)
 }
 
 private fun colorDistance(a: Int, b: Int): Int = maxOf(

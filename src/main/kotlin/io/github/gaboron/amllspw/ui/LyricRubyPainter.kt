@@ -23,7 +23,8 @@ internal class LyricRubyPainter : AutoCloseable {
     private var filter: ColorFilter? = null
     private var closed = false
 
-    fun DrawScope.paintRuby(layout: LineLayout, timeMs: Long, highlight: Float, options: RenderOptions, tint: Color) {
+    fun DrawScope.paintRuby(layout: LineLayout, timeMs: Long, highlight: Float, options: RenderOptions, tint: Color,
+        adaptiveInk: Boolean) {
         updateTint(tint)
         for (run in layout.rubyRuns) {
             val progress = if (layout.line.hasWordTiming) run.motion.progress(timeMs) else 1f
@@ -41,9 +42,9 @@ internal class LyricRubyPainter : AutoCloseable {
                     native.drawImageRect(texture.image, source, target, SamplingMode.LINEAR, paint, true)
                 }
                 if (!layout.line.hasWordTiming || highlight <= .001f) {
-                    draw(.2f + .8f * highlight)
+                    draw(if (adaptiveInk) .33f + .67f * highlight else .2f + .8f * highlight)
                 } else {
-                    draw(.2f + .2f * highlight)
+                    draw(if (adaptiveInk) .33f + .33f * highlight else .2f + .2f * highlight)
                     if (progress > 0 && highlight > 0) {
                         if (progress >= .999f) draw(highlight)
                         else {
@@ -63,13 +64,14 @@ internal class LyricRubyPainter : AutoCloseable {
         }
     }
 
-    fun DrawScope.paintUpper(text: TextLayoutResult, emPx: Float, highlight: Float, tint: Color) {
+    fun DrawScope.paintUpper(text: TextLayoutResult, emPx: Float, highlight: Float, tint: Color, adaptiveInk: Boolean) {
         updateTint(tint)
         val texture = atlas.get(text, emPx * .5f, this)
         val pad = texture.padding
         val source = SkiaRect.makeWH(texture.image.width.toFloat(), texture.image.height.toFloat())
         val target = SkiaRect.makeLTRB(-pad, -pad, text.size.width + pad, text.size.height + pad)
-        paint.alpha = ((.3f + .35f * highlight).coerceIn(0f, 1f) * 255).roundToInt()
+        val alpha = if (adaptiveInk) .48f + .52f * highlight else .3f + .35f * highlight
+        paint.alpha = (alpha.coerceIn(0f, 1f) * 255).roundToInt()
         drawContext.canvas.skiaCanvas.drawImageRect(texture.image, source, target, SamplingMode.LINEAR, paint, true)
     }
 

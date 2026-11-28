@@ -38,6 +38,7 @@ internal fun InstrumentalPoetrySurface(poem: Poem, options: RenderOptions, color
     modifier: Modifier, footer: LyricFooterContent = LyricFooterContent(), horizontalPaddingDp: Float? = null, onNextPoem: () -> Unit) {
     val nextPoem by rememberUpdatedState(onNextPoem)
     val footerSections = footer.sections
+    val adaptiveInk = LocalPlayerLyricFraming.current.adaptiveInk
     val readingFamily = remember { FontFamily("SimSun") }
     BoxWithConstraints(modifier.fillMaxSize().clipToBounds()) {
         val headingSize = options.typography.fontSize(maxWidth.value)
@@ -72,9 +73,10 @@ internal fun InstrumentalPoetrySurface(poem: Poem, options: RenderOptions, color
                             lineHeight = (readingSize * 1.5f).sp, textAlign = TextAlign.Center))
                         Spacer(Modifier.height(10.dp))
                         BasicText(current.author, style = options.typography.textStyle(13f).copy(
-                            color = color.copy(alpha = .52f), textAlign = TextAlign.Center))
+                            color = color.copy(alpha = if (adaptiveInk) .86f else .52f), textAlign = TextAlign.Center))
                         Spacer(Modifier.height(28.dp))
-                        BalancedPoetryText(current.text, style = TextStyle(color = color.copy(alpha = .78f), fontFamily = readingFamily,
+                        BalancedPoetryText(current.text, style = TextStyle(color = color.copy(alpha = if (adaptiveInk) 1f else .78f),
+                            fontFamily = readingFamily,
                             fontSize = readingSize.sp, lineHeight = (readingSize * 1.85f).sp,
                             letterSpacing = .6.sp, textAlign = TextAlign.Center))
                         InstrumentalFooter(footerSections, options, color, lyricFooterFontSize(headingSize),
@@ -82,7 +84,7 @@ internal fun InstrumentalPoetrySurface(poem: Poem, options: RenderOptions, color
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Spacer(Modifier.height(24.dp))
                                     BasicText(current.collection, style = options.typography.textStyle(11f).copy(
-                                        color = color.copy(alpha = .38f), textAlign = TextAlign.Center))
+                                        color = color.copy(alpha = if (adaptiveInk) .76f else .38f), textAlign = TextAlign.Center))
                                 }
                             })
                     }
@@ -136,12 +138,13 @@ private fun InstrumentalHeading(options: RenderOptions, color: Color, titleSize:
     letterSpacing: Float = 1.6f) {
     // Headings carry no pointer, focus, seek callback or poem-change semantics.
     val alignment = if (centered) TextAlign.Center else TextAlign.Left
+    val adaptiveInk = LocalPlayerLyricFraming.current.adaptiveInk
     Column(modifier.fillMaxWidth()) {
         BasicText("纯音乐", Modifier.fillMaxWidth(), style = options.typography.textStyle(titleSize).copy(
             color = color.copy(alpha = .94f), textAlign = alignment))
         Spacer(Modifier.height(gap))
         BasicText("INSTRUMENTAL", Modifier.fillMaxWidth(), style = options.typography.textStyle(subtitleSize).copy(
-            color = color.copy(alpha = .5f), textAlign = alignment, letterSpacing = letterSpacing.sp))
+            color = color.copy(alpha = if (adaptiveInk) .85f else .5f), textAlign = alignment, letterSpacing = letterSpacing.sp))
     }
 }
 

@@ -29,7 +29,7 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
     bottomContent: LyricFooterContent? = null, onPlaybackRate: () -> Float? = { null },
     onPlaybackSample: (() -> PlaybackClock.Sample)? = null,
     alignPosition: Float = .35f, alignAnchor: Float = .35f, foregroundColor: Color? = null,
-    horizontalPaddingDp: Float? = null) {
+    horizontalPaddingDp: Float? = null, adaptiveInk: Boolean = false) {
     val measurer = rememberTextMeasurer(cacheSize = 1_024)
     val painter = remember(measurer) { LyricLinePainter(measurer) }
     DisposableEffect(painter) { onDispose { painter.close() } }
@@ -62,7 +62,8 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
     val cache = remember(presentation.document, density, showSecondary, options.typography, options.translationLanguage) { LayoutCache() }
     val contentTransition = remember(presentation.trackKey) { LyricContentTransition(options) }
     val lyricColor = foregroundColor ?: if (options.coloredLyrics) Color(presentation.lyricColor) else Color.White
-    val glowColor = if (options.coloredLyrics) Color(presentation.lyricGlowColor) else Color.White
+    val glowColor = if (adaptiveInk) lyricColor
+        else if (options.coloredLyrics) Color(presentation.lyricGlowColor) else Color.White
     val scroll = rememberScrollableState { delta -> viewport.scroll(delta); delta }
     val hovering = pointer.position?.let { point -> viewport.hits.any { it.bounds.contains(point) } } == true
     Canvas(modifier.fillMaxSize().clipToBounds().lyricHover(pointer)
@@ -147,7 +148,8 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
         if (options.background) drawFluidBackground(presentation.palette, if (options.reducedMotion) 0f else cache.backgroundTime)
         if (cache.groups.isEmpty() && !presentation.loading) {
             val empty = measurer.measure(AnnotatedString("暂无可用歌词"), options.typography.textStyle(18f))
-            drawText(empty, color = lyricColor.copy(alpha = .6f), topLeft = Offset((size.width - empty.size.width) / 2, size.height * .35f))
+            drawText(empty, color = lyricColor.copy(alpha = if (adaptiveInk) 1f else .6f),
+                topLeft = Offset((size.width - empty.size.width) / 2, size.height * .35f))
         }
         val hits = mutableListOf<ViewportMotion.Hit>()
         val clearBlur = manual || !options.blur || options.reducedMotion
@@ -199,13 +201,13 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
                                     translate(top = top) {
                                         paintLine(layout, position, layerOptions[layerIndex],
                                             voice.highlight.value, lyricColor, voice.blur.radius, viewport,
-                                            rowOpacity * layer.opacity, glowColor = glowColor)
+                                            rowOpacity * layer.opacity, glowColor = glowColor, adaptiveInk = adaptiveInk)
                                     }
                                 }
                                 for (auxiliary in content.auxiliary) {
                                     paintAuxiliary(auxiliary.layout, auxiliary.top, auxiliary.height, row.emPx, voice.highlight.value,
                                         lyricColor, voice.blur.radius, rowViewport, rowOpacity * auxiliary.opacity,
-                                        options.coloredLyrics)
+                                        options.coloredLyrics, adaptiveInk)
                                 }
                             }
                         }

@@ -33,7 +33,8 @@ internal class WordHighlightPainter : AutoCloseable {
     private var glowTintFilter: org.jetbrains.skia.ColorFilter? = null
 
     fun DrawScope.paint(layout: LineLayout, region: WordRegion, timeMs: Long, highlight: Float, options: RenderOptions,
-        color: Color = Color.White, opacity: Float = 1f, glowColor: Color = color) {
+        color: Color = Color.White, opacity: Float = 1f, glowColor: Color = color,
+        unsungOpacity: Float = .2f + .2f * highlight) {
         updateTint(color.toArgb())
         updateGlowTint(glowColor.toArgb())
         val word = region.word
@@ -85,7 +86,7 @@ internal class WordHighlightPainter : AutoCloseable {
                         paintGlowLayers(texture, source, target, strength * highlight * opacity, radius, options.coloredLyrics)
                     }
                 }
-                imagePaint.alpha = ((.2f + .2f * highlight) * opacity * 255).roundToInt()
+                imagePaint.alpha = (unsungOpacity * opacity * 255).roundToInt()
                 native.drawImageRect(texture.image, source, target, SamplingMode.LINEAR, imagePaint, true)
                 if (progress > 0 && highlight > 0) {
                     imagePaint.alpha = (highlight * opacity * 255).roundToInt()

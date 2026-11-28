@@ -1,15 +1,22 @@
 package io.github.gaboron.amllspw.verify
 
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.geometry.Rect as ComposeRect
 import io.github.gaboron.amllspw.cover.COVER_SAMPLE_SIZE
 import io.github.gaboron.amllspw.cover.CoverColorField
 import io.github.gaboron.amllspw.cover.ImmersiveCoverRenderer
+import io.github.gaboron.amllspw.cover.ImmersiveBackdropSamples
 import io.github.gaboron.amllspw.cover.MATERIAL_COLUMNS
 import io.github.gaboron.amllspw.cover.MATERIAL_ROWS
 import io.github.gaboron.amllspw.cover.MATERIAL_TILE
 import io.github.gaboron.amllspw.cover.coverBackdropProfile
 import io.github.gaboron.amllspw.cover.coverDetailMask
 import io.github.gaboron.amllspw.cover.extractCoverMaterial
+import io.github.gaboron.amllspw.cover.immersiveInk
+import io.github.gaboron.amllspw.cover.immersiveInkFamily
+import io.github.gaboron.amllspw.cover.inkContrast
+import io.github.gaboron.amllspw.cover.inkLuminance
+import io.github.gaboron.amllspw.cover.OklabColor
 import io.github.gaboron.amllspw.cover.prepareImmersiveCover
 import io.github.gaboron.amllspw.cover.trimCoverMatte
 import io.github.gaboron.amllspw.ui.playerInkOutline
@@ -43,8 +50,9 @@ internal fun verifyImmersiveCover() {
     check(trimCoverMatte(crop, framed) == crop) { "A single light edge was mistaken for a matte" }
     verifyCoverMaterial()
     verifyImmersiveRendering()
+    verifyImmersiveInk()
     verifyForegroundOutline()
-    println("Immersive cover: seam, matte, directional texture, original brightness and glyph outline passed")
+    println("Immersive cover: seam, matte, adaptive texture, sampled text contrast, slider labels and outline fallback passed")
 }
 
 private fun verifyCoverMaterial() {
@@ -84,8 +92,43 @@ private fun verifyCoverMaterial() {
         (0xff shl 24) or ((80 + delta * 2) shl 16) or ((90 + delta) shl 8) or (40 + delta)
     }
     val sceneProfile = coverBackdropProfile(scene)
-    check(sceneProfile.groundWeight == 0f && sceneProfile.textureGain < 1f)
-    check(coverBackdropProfile(material).textureGain > 1.5f)
+    check(sceneProfile.groundWeight == 0f && sceneProfile.textureGain < .2f)
+    check(coverBackdropProfile(material).textureGain > .75f)
+}
+
+private fun verifyImmersiveInk() {
+    val white = -1
+    val black = 0xff000000.toInt()
+    val light = 0xffbdd7e6.toInt()
+    val dark = 0xff4b302a.toInt()
+    val accent = 0xffda8150.toInt()
+    val lightColors = IntArray(80) { if (it == 0) white else light }
+    val darkColors = IntArray(80) { dark }
+    val family = immersiveInkFamily(accent, darkColors)
+    fun contrast(a: Int, b: Int) = inkContrast(inkLuminance(a), inkLuminance(b))
+    check(immersiveInk(lightColors, family, false).primary == black)
+    check(immersiveInk(darkColors, family, false).primary == white)
+    check(immersiveInk(intArrayOf(0xff777777.toInt()), null, false).primary == black)
+    for ((colors, base) in listOf(lightColors to light, darkColors to dark)) {
+        val ink = immersiveInk(colors, family, true)
+        check(!ink.needsOutline && contrast(ink.primary, base) >= 4.5 && contrast(ink.secondary, base) >= 4.5)
+        check(OklabColor.fromRgb(ink.primary).chroma > .02)
+        check(contrast(ink.bubbleText, ink.bubble) >= 7.0)
+        check(contrast(ink.primary, ink.rail) >= 3.0)
+    }
+    check(immersiveInk(intArrayOf(black, white), family, false).needsOutline)
+    check(immersiveInkFamily(white, IntArray(20) { white }) == null)
+
+    val image = BufferedImage(128, 128, BufferedImage.TYPE_INT_RGB)
+    for (y in 0..127) for (x in 0..127) image.setRGB(x, y, if (x < 64) black else white)
+    val cover = prepareImmersiveCover(image.toComposeImageBitmap()) {}
+    ImmersiveCoverRenderer.makeEffect().use { effect ->
+        val sample = ImmersiveBackdropSamples.render(effect, cover, 960f, 560f, ComposeRect(220f, 56f, 650f, 486f))
+        val left = sample.colors(ComposeRect(270f, 170f, 380f, 400f))
+        val right = sample.colors(ComposeRect(485f, 170f, 590f, 400f))
+        check(immersiveInk(left, null, false).primary == white)
+        check(immersiveInk(right, null, false).primary == black)
+    }
 }
 
 private fun verifyForegroundOutline() {

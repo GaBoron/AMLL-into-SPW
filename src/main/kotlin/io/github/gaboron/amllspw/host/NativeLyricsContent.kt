@@ -31,7 +31,8 @@ internal fun NativeLyricsContent(runtime: AmllRuntime, modifier: Modifier, showS
             NativeLyricsSurface(scene, sceneOptions.copy(background = false), Modifier.fillMaxSize(),
                 { readPlayback().positionMs }, { runtime.seekTo(scene.trackKey, it) }, showSecondary,
                 onPlaybackSample = readPlayback, alignPosition = framing.position, alignAnchor = framing.anchor,
-                foregroundColor = framing.color, horizontalPaddingDp = framing.horizontalPaddingDp)
+                foregroundColor = framing.color, horizontalPaddingDp = framing.horizontalPaddingDp,
+                adaptiveInk = framing.adaptiveInk)
         }
     }
 }

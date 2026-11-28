@@ -15,8 +15,6 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.platform.LocalDensity
@@ -31,7 +29,8 @@ import com.kyant.backdrop.backdrops.layerBackdrop
 import kotlinx.coroutines.delay
 
 internal data class PlayerLyricFraming(val position: Float = .35f, val anchor: Float = .35f,
-    val fontSize: Int? = null, val color: Color? = null, val horizontalPaddingDp: Float? = null)
+    val fontSize: Int? = null, val color: Color? = null, val horizontalPaddingDp: Float? = null,
+    val adaptiveInk: Boolean = false)
 internal val LocalPlayerLyricFraming = staticCompositionLocalOf { PlayerLyricFraming() }
 
 @Composable
@@ -57,11 +56,9 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
     val lyricVisibility by animateFloatAsState(if (hiddenLyrics) 0f else 1f,
         if (options.reducedMotion) snap() else tween(560, easing = FastOutSlowInEasing))
     val immersive = if (options.immersiveCover) rememberImmersiveArtwork(presentation) else null
-    val darkInk = (immersive?.cover?.surroundings?.count { Color(it).luminance() > .54f } ?: 0) >= 3
     val animatedColor by animateColorAsState(if (options.coloredLyrics) Color(presentation.lyricColor) else Color.White,
         tween(if (options.reducedMotion || !options.coloredLyrics) 0 else 650))
-    val normalInk = if (options.coloredLyrics) animatedColor else Color.White
-    val color = if (darkInk) lerp(Color(0xff12131a), normalInk, if (options.coloredLyrics) .24f else 0f) else normalInk
+    val color = if (options.coloredLyrics) animatedColor else Color.White
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     CompositionLocalProvider(LocalPlayerColor provides color, LocalPlayerGlassPopups provides glassPopups) {
@@ -88,8 +85,13 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
                 val cover = Rect(blend(shown.left, hidden.left), blend(shown.top, hidden.top),
                     blend(shown.right, hidden.right), blend(shown.bottom, hidden.bottom))
                 val controlsTop = if (style.vertical) cover.bottom + style.em else style.controlsTop
-                val inkOutline = if (immersive != null) rememberPlayerInkOutline(darkInk) else null
-                if (immersive != null) ImmersivePlayerBackground(immersive, cover, options.reducedMotion)
+                val lyricTop = if (style.vertical) style.lyricTop else maxOf(30f, style.coverTop - style.height * .04f)
+                val ink = if (immersive != null) {
+                    val accent = remember(immersive.cover) { presentation.lyricGlowColor }
+                    rememberImmersivePlayerInk(immersive, style, if (hiddenLyrics) hidden else shown,
+                        lyricTop, hiddenLyrics, accent, options.coloredLyrics)
+                } else null
+                if (immersive != null && ink != null) ImmersivePlayerBackground(immersive, cover, options.reducedMotion, ink)
                 else PlayerBackground(presentation, options.reducedMotion)
                 val menu: @Composable () -> Unit = {
                     if (pageMenu != null) pageMenu(style.menuSize)
@@ -106,52 +108,64 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
                     val controlsWidth = if (style.vertical) style.width - style.edge * 2f else style.coverSize
                     val controlsHeight = if (style.vertical) (style.height - controlsTop - 24f).coerceAtLeast(style.verticalControlsHeight)
                         else style.controlsHeight
-                    PlayerControls(presentation, style, options,
-                        Modifier.offset((if (style.vertical) style.edge else cover.left).dp, controlsTop.dp)
-                            .size(controlsWidth.dp, controlsHeight.dp)
-                            .zIndex(1f)
-                            .graphicsLayer {
-                                alpha = if (style.vertical) movement else 1f
-                                renderEffect = inkOutline
-                            },
-                        readPlayback, onSeek, { command ->
-                            if (command == "previous" || command == "next") coverDirection = if (command == "previous") -1 else 1
-                            transportState.request(command)
-                            onTransport(command)
-                        }, readVolume, onVolume, readMode, onMode, queue = queue, spectrum = spectrum,
-                        info = { PlayerTrackInfo(presentation, style.infoSize, options.reducedMotion, menu) })
+                    val outline = ink?.controls?.takeIf { it.needsOutline }?.let { rememberPlayerInkOutline(it.dark) }
+                    ImmersiveControlInk(ink?.controls) {
+                        PlayerControls(presentation, style, options,
+                            Modifier.offset((if (style.vertical) style.edge else cover.left).dp, controlsTop.dp)
+                                .size(controlsWidth.dp, controlsHeight.dp)
+                                .zIndex(1f)
+                                .graphicsLayer {
+                                    alpha = if (style.vertical) movement else 1f
+                                    renderEffect = outline
+                                },
+                            readPlayback, onSeek, { command ->
+                                if (command == "previous" || command == "next") coverDirection = if (command == "previous") -1 else 1
+                                transportState.request(command)
+                                onTransport(command)
+                            }, readVolume, onVolume, readMode, onMode, queue = queue, spectrum = spectrum,
+                            info = { PlayerTrackInfo(presentation, style.infoSize, options.reducedMotion, menu) })
+                    }
                 }
                 if (style.vertical && lyricVisibility > .001f) {
+                    val outline = ink?.header?.takeIf { it.needsOutline }?.let { rememberPlayerInkOutline(it.dark) }
                     Row(Modifier.offset(style.edge.dp, style.smallHeaderTop.dp).width((style.width - style.edge * 2).dp)
                         .height(style.smallCover.dp).zIndex(1f).graphicsLayer {
                             alpha = lyricVisibility
-                            renderEffect = inkOutline
+                            renderEffect = outline
                         }, verticalAlignment = Alignment.CenterVertically) {
                         Spacer(Modifier.width((style.smallCover + style.em).dp))
-                        Box(Modifier.weight(1f)) { PlayerTrackInfo(presentation, style.smallInfoSize, options.reducedMotion, menu) }
+                        Box(Modifier.weight(1f)) {
+                            ImmersiveControlInk(ink?.header) {
+                                PlayerTrackInfo(presentation, style.smallInfoSize, options.reducedMotion, menu)
+                            }
+                        }
                     }
                 }
                 if (lyricVisibility > .001f) {
-                    val top = if (style.vertical) style.lyricTop else maxOf(30f, style.coverTop - style.height * .04f)
+                    val top = lyricTop
                     val height = style.height - top - if (style.vertical) 0f else 48f
                     val position = if (style.vertical) .1f else ((style.coverCenter - top) / height).coerceIn(0f, 1f)
                     val fontSize = maxOf(style.height * .05f, style.width * .025f, 14f).toInt()
+                    val lyricInk = ink?.lyrics
+                    val outline = lyricInk?.takeIf { it.needsOutline }?.let { rememberPlayerInkOutline(it.dark) }
                     CompositionLocalProvider(LocalPlayerLyricFraming provides PlayerLyricFraming(position,
-                        if (style.vertical) 0f else .5f, fontSize, color, style.lyricDrawingPadding)) {
+                        if (style.vertical) 0f else .5f, fontSize, lyricInk?.let { Color(it.primary) } ?: color,
+                        style.lyricDrawingPadding, adaptiveInk = lyricInk != null)) {
                         Box(Modifier.offset(style.lyricCanvasLeft.dp, top.dp).size(style.lyricCanvasWidth.dp, height.dp)
                             .graphicsLayer {
                                 alpha = lyricVisibility
                                 translationX = (1f - lyricVisibility) * 40.dp.toPx()
                                 scaleX = .97f + .03f * lyricVisibility
                                 scaleY = scaleX
-                                renderEffect = inkOutline
+                                renderEffect = outline
                             }) { lyrics() }
                     }
                 }
                 if (cornerControls != null) {
+                    val outline = ink?.corner?.takeIf { it.needsOutline }?.let { rememberPlayerInkOutline(it.dark) }
                     Box(Modifier.align(Alignment.BottomEnd).padding(end = (style.em * 2).dp, bottom = 16.dp).zIndex(2f)) {
-                        Box(if (inkOutline == null) Modifier else Modifier.graphicsLayer { renderEffect = inkOutline }) {
-                            cornerControls(40f)
+                        Box(if (outline == null) Modifier else Modifier.graphicsLayer { renderEffect = outline }) {
+                            ImmersiveControlInk(ink?.corner) { cornerControls(40f) }
                         }
                     }
                 }
@@ -164,14 +178,16 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
 @Composable
 private fun PlayerTrackInfo(presentation: LyricsPresentation, size: Float, reducedMotion: Boolean, menu: @Composable () -> Unit) {
     val color = LocalPlayerColor.current
+    val adaptive = LocalImmersiveControlInk.current
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f).clipToBounds()) {
-            @Composable fun Line(text: String, alpha: Float, weight: FontWeight) {
+            @Composable fun Line(text: String, ink: Color, alpha: Float, weight: FontWeight) {
                 BasicText(text, if (reducedMotion) Modifier else Modifier.basicMarquee(iterations = Int.MAX_VALUE),
-                    style = playerInfoStyle(size, color, alpha, weight), maxLines = 1, softWrap = false)
+                    style = playerInfoStyle(size, ink, alpha, weight), maxLines = 1, softWrap = false)
             }
-            Line(playerTrackTitle(presentation), .9f, FontWeight.Medium)
-            Line(playerTrackArtist(presentation), .45f, FontWeight.Normal)
+            Line(playerTrackTitle(presentation), color, if (adaptive != null) 1f else .9f, FontWeight.Medium)
+            Line(playerTrackArtist(presentation), adaptive?.let { Color(it.secondary) } ?: color,
+                if (adaptive != null) 1f else .45f, FontWeight.Normal)
         }
         Spacer(Modifier.width(16.dp))
         menu()

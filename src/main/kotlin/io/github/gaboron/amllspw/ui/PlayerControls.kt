@@ -108,7 +108,8 @@ internal fun PlayerControls(presentation: LyricsPresentation, style: AmllPlayerS
                 queue(buttonSize.value, sideIconSize)
             }
             if (volume != null) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                PlayerIcon("icon_speaker", null, Modifier.size(24.dp), .5f)
+                val speakerAlpha = if (LocalImmersiveControlInk.current != null) .85f else .5f
+                PlayerIcon("icon_speaker", null, Modifier.size(24.dp), speakerAlpha)
                 key("player-volume") {
                     PlayerSlider(volumeValue.value(volume!!), enabled, "音量", options.reducedMotion,
                         Modifier.weight(1f), spectrum = spectrum,
@@ -118,15 +119,18 @@ internal fun PlayerControls(presentation: LyricsPresentation, style: AmllPlayerS
                             onVolume(it)
                         })
                 }
-                PlayerIcon("icon_speaker_3", null, Modifier.size(24.dp), .5f)
+                PlayerIcon("icon_speaker_3", null, Modifier.size(24.dp), speakerAlpha)
             }
         }
     }
 }
 
 @Composable
-private fun TimeLabel(value: String, style: AmllPlayerStyle, modifier: Modifier = Modifier) = BasicText(value, modifier,
-    style = playerTimeStyle(style.timeSize, LocalPlayerColor.current))
+private fun TimeLabel(value: String, style: AmllPlayerStyle, modifier: Modifier = Modifier) {
+    val ink = LocalImmersiveControlInk.current
+    val textStyle = playerTimeStyle(style.timeSize, LocalPlayerColor.current)
+    BasicText(value, modifier, style = if (ink != null) textStyle.copy(color = Color(ink.secondary)) else textStyle)
+}
 
 internal fun playerTimeStyle(size: Float, color: Color = Color.White) = TextStyle(
     color = color.copy(alpha = .5f), fontSize = size.sp, lineHeight = (size * 1.25f).sp,

@@ -26,6 +26,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.key.*
@@ -59,6 +60,7 @@ internal fun PlayerSlider(value: Float, enabled: Boolean, label: String, reduced
         if (reducedMotion) snap() else if (dragging || hovered) tween(280) else spring(.42f, 200f))
     val bounce by animateFloatAsState(overshoot, if (reducedMotion) snap() else spring(.35f, 300f))
     val color = LocalPlayerColor.current
+    val ink = LocalImmersiveControlInk.current
     val density = LocalDensity.current
     var width by remember { mutableIntStateOf(0) }
     var bubbleWidth by remember { mutableIntStateOf(0) }
@@ -116,7 +118,9 @@ internal fun PlayerSlider(value: Float, enabled: Boolean, label: String, reduced
                     val level = spectrum.level(band)
                     val barHeight = (3f + level * (PLAYER_SPECTRUM_PEAK_DP - 3f)).dp.toPx()
                     val lit = (value * spectrum.bands - band).coerceIn(0f, 1f)
-                    drawRoundRect(color.copy(alpha = if (enabled) .30f + .62f * lit else .16f),
+                    val tint = if (ink != null && enabled) lerp(Color(ink.rail), color, lit)
+                    else color.copy(alpha = if (enabled) .30f + .62f * lit else .16f)
+                    drawRoundRect(tint,
                         topLeft = androidx.compose.ui.geometry.Offset(step * (band + .5f) - barWidth / 2f, (size.height - barHeight) / 2f),
                         size = Size(barWidth, barHeight), cornerRadius = CornerRadius(barWidth / 2f))
                 }
@@ -127,8 +131,9 @@ internal fun PlayerSlider(value: Float, enabled: Boolean, label: String, reduced
             val bounds = androidx.compose.ui.geometry.Rect(0f, top, size.width, top + railHeight)
             val path = Path().apply { addRoundRect(androidx.compose.ui.geometry.RoundRect(bounds, CornerRadius(railHeight / 2))) }
             clipPath(path) {
-                drawRect(color.copy(alpha = if (enabled) .149f else .08f))
-                drawRect(color.copy(alpha = if (enabled) .65f else .1f), size = Size(size.width * displayedValue.coerceIn(0f, 1f), size.height))
+                drawRect(if (ink != null && enabled) Color(ink.rail) else color.copy(alpha = if (enabled) .149f else .08f))
+                drawRect(if (ink != null && enabled) color else color.copy(alpha = if (enabled) .65f else .1f),
+                    size = Size(size.width * displayedValue.coerceIn(0f, 1f), size.height))
             }
         }
         AnimatedVisibility(dragging, modifier = Modifier.align(Alignment.TopStart).requiredHeight(34.dp).offset {
@@ -136,8 +141,9 @@ internal fun PlayerSlider(value: Float, enabled: Boolean, label: String, reduced
                 with(density) { (-40).dp.roundToPx() })
         }, enter = fadeIn(tween(if (reducedMotion) 0 else 100)), exit = fadeOut(tween(if (reducedMotion) 0 else 180))) {
             BasicText(formatValue(displayedValue), Modifier.onSizeChanged { bubbleWidth = it.width }
-                .background(Color.Black.copy(alpha = .72f), RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 7.dp),
-                style = TextStyle(color = color, fontSize = 14.sp))
+                .background(ink?.let { Color(it.bubble) } ?: Color(0xff252525), RoundedCornerShape(10.dp))
+                .padding(horizontal = 12.dp, vertical = 7.dp),
+                style = TextStyle(color = ink?.let { Color(it.bubbleText) } ?: Color.White, fontSize = 14.sp))
         }
     }
 }

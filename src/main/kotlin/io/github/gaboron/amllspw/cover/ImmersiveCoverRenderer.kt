@@ -113,7 +113,9 @@ internal class ImmersiveCoverRenderer(effect: RuntimeEffect, cover: ImmersiveCov
 
             half3 surfaceDetail(float2 pixel) {
                 // Each tile spans two cells. Overlap neighbors at a fixed aspect to hide the grid.
-                float cellSize = clamp(anchor.z * (${MATERIAL_SWATCH}.0 / (2.0 * ${COVER_SAMPLE_SIZE}.0)), 3.0, 9.0);
+                float roughness = smoothstep(0.42, 0.90, profile.y);
+                float cellSize = clamp(anchor.z * (${MATERIAL_SWATCH}.0 / (2.0 * ${COVER_SAMPLE_SIZE}.0)),
+                    2.5, mix(4.5, 7.0, roughness));
                 float2 grid = pixel / cellSize;
                 float2 cell = floor(grid);
                 float2 weight = smoothstep(float2(0.0), float2(1.0), fract(grid));
@@ -137,7 +139,10 @@ internal class ImmersiveCoverRenderer(effect: RuntimeEffect, cover: ImmersiveCov
                     coverColor = cover.rgb + half3(9.0 / 255.0) * (1.0 - cover.a);
                     if (weight >= 1.0) return half4(coverColor, 1.0);
                 }
-                half3 background = clamp(broadColor(pixel, p) + surfaceDetail(pixel) * profile.y, 0.0, 1.0);
+                // Smooth scenes use only a trace. Actual grain can stay visible across the page.
+                float farTexture = mix(0.20, 0.78, smoothstep(0.42, 0.90, profile.y));
+                float textureAmount = profile.y * mix(1.0, farTexture, smoothstep(0.52, 1.30, radius));
+                half3 background = clamp(broadColor(pixel, p) + surfaceDetail(pixel) * textureAmount, 0.0, 1.0);
                 return half4(mix(background, coverColor, weight), 1.0);
             }
         """.trimIndent())
