@@ -5,6 +5,7 @@ package io.github.gaboron.amllspw.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
@@ -26,8 +27,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable
-internal fun PlayerGlassMenu(active: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState(), enabled = active), content = content)
+internal fun PlayerGlassMenu(active: Boolean = true, scroll: ScrollState = rememberScrollState(),
+    content: @Composable ColumnScope.() -> Unit) {
+    Column(Modifier.fillMaxWidth().verticalScroll(scroll, enabled = active), content = content)
 }
 
 @Composable

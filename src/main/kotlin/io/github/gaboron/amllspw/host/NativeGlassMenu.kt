@@ -3,6 +3,7 @@ package io.github.gaboron.amllspw.host
 
 import androidx.compose.runtime.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -94,11 +95,11 @@ internal class NativeGlassMenu(body: Method) {
             pages += GlassMenuPage(levelPath.map(Step::index), Page(entries, owner, levelPath), step.trigger)
         }
         PlayerGlassSubmenus(pages) { (items, owner, levelPath), level, state ->
-            PlayerGlassMenu(state.active) {
+            val scroll = rememberScrollState()
+            PlayerGlassMenu(state.active, scroll) {
                 if (owner != null) {
-                    MenuRow(owner, state.acceptsBack, Modifier.graphicsLayer {
-                        alpha = GlassSubmenuMotion.handoff(state.unfoldProgress())
-                    }, rotation = { 90f * state.unfoldProgress().coerceIn(0f, 1f) },
+                    MenuRow(owner, state.acceptsBack, state.placeHeader { scroll.value },
+                        rotation = { 90f * state.unfoldProgress().coerceIn(0f, 1f) },
                         onClickLabel = if (state.active) "返回上一级" else "展开子菜单", onClick = {
                             path = if (state.active) levelPath.dropLast(1) else levelPath
                         })
@@ -110,7 +111,7 @@ internal class NativeGlassMenu(body: Method) {
                         else {
                             val row = remember { RowCoordinates() }
                             MenuRow(item, state.active, Modifier.onGloballyPositioned { row.value = it }
-                                .graphicsLayer { alpha = state.openerOpacity(index) }, onClick = {
+                                .graphicsLayer { alpha = if (state.covers(index)) 0f else 1f }, onClick = {
                                 if (item.children != null) path = levelPath + Step(index, level.trigger(row.value, index))
                                 else {
                                     dismiss()

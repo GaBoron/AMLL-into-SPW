@@ -21,12 +21,17 @@ internal fun verifyGlassSubmenuMotion() {
     check(parent.boundingRect == Rect(14f, 5f, 280f, 290f))
     check(GlassSubmenuMotion.stackExtent(240, 400, .5f) == 320)
     var phase = 1f
-    val parentState = GlassMenuLayerState(false, false, { 1f }, "settings") { GlassSubmenuMotion.handoff(phase) }
+    val parentState = GlassMenuLayerState(false, false, { 1f }, "settings", { GlassSubmenuMotion.handoff(phase) })
     check(parentState.openerOpacity("settings") == 0f && parentState.openerOpacity("other") == 1f)
     phase = .001f
     check(GlassSubmenuMotion.handoff(phase) < .001f && parentState.openerOpacity("settings") > .999f)
     phase = 0f
     check(GlassSubmenuMotion.handoff(phase) == 0f && parentState.openerOpacity("settings") == 1f)
     check(GlassSubmenuMotion.parentShadow(1, phase) == 1f)
+    check(GlassSubmenuMotion.header(opener, 280, 0, 0f) == opener)
+    check(GlassSubmenuMotion.header(opener, 280, 20, 0f).top - 20f == opener.top)
+    check(GlassSubmenuMotion.header(opener, 280, 20, 1f) == Rect(0f, 0f, 280f, opener.height))
+    val movingHeader = GlassSubmenuMotion.header(opener, 280, 0, .15f)
+    check(movingHeader.left in 0f..opener.left && movingHeader.width in opener.width..280f && movingHeader.top < opener.top)
     println("Glass submenu: opener and card bounds, staged reveal, parent recession, and viewport growth passed")
 }

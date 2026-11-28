@@ -20,16 +20,19 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.boundingRect
+import androidx.compose.ui.geometry.lerp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import kotlin.math.PI
@@ -47,8 +50,29 @@ internal val LocalPlayerGlassReducedMotion = staticCompositionLocalOf { false }
 internal data class GlassMenuTrigger(val bounds: Rect, val id: Any? = null)
 internal data class GlassMenuPage<T>(val key: Any, val data: T, val trigger: GlassMenuTrigger? = null)
 internal class GlassMenuLayerState(val active: Boolean, val acceptsBack: Boolean,
-    val unfoldProgress: () -> Float, private val covered: Any?, private val coverOpacity: () -> Float) {
+    val unfoldProgress: () -> Float, private val covered: Any?, private val coverOpacity: () -> Float,
+    private val headerOrigin: () -> Rect? = { null }) {
+    fun covers(id: Any): Boolean = covered == id
     fun openerOpacity(id: Any): Float = if (covered == id) 1f - coverOpacity() else 1f
+
+    fun placeHeader(scrollOffset: () -> Int): Modifier = Modifier.layout { measurable, constraints ->
+        val opener = headerOrigin()
+        if (opener == null || !constraints.hasBoundedWidth) {
+            val row = measurable.measure(constraints)
+            layout(row.width, row.height) { row.place(0, 0) }
+        } else {
+            val width = constraints.maxWidth
+            val bounds = GlassSubmenuMotion.header(opener, width, scrollOffset(), unfoldProgress())
+            val rowWidth = constraints.constrainWidth(bounds.width.roundToInt())
+            val row = measurable.measure(constraints.copy(minWidth = rowWidth, maxWidth = rowWidth))
+            layout(width, row.height) {
+                row.placeWithLayer(0, 0) {
+                    translationX = bounds.left
+                    translationY = bounds.top
+                }
+            }
+        }
+    }
 }
 
 internal class GlassMenuLevel {
@@ -69,7 +93,7 @@ internal object GlassSubmenuMotion {
     val unfold = spring(.85f, stiffness(.42f), .001f)
     val fold = spring(1f, stiffness(.34f), .001f)
 
-    // Hand the label and rim back to the original row before discarding the narrower clip.
+    // Fade the glass rim and restore custom extension controls near the opener.
     fun handoff(progress: Float): Float {
         val amount = (progress / .14f).coerceIn(0f, 1f)
         return amount * amount * (3f - 2f * amount)
@@ -88,9 +112,18 @@ internal object GlassSubmenuMotion {
 
     private fun distance(depth: Int, progress: Float) = (depth - 1 + progress.coerceIn(0f, 1f)).coerceAtLeast(0f)
 
+    private fun widthProgress(progress: Float) = (progress / .3f).coerceIn(0f, 1f)
+
+    // Lay out the same label and arrow at the opener's width on the last folding frame.
+    fun header(origin: Rect, width: Int, scrollOffset: Int, progress: Float): Rect {
+        val horizontal = lerp(origin, Rect(0f, origin.top, width.toFloat(), origin.bottom), widthProgress(progress))
+        val y = (origin.top + scrollOffset) * (1f - progress.coerceIn(0f, 1f))
+        return horizontal.translate(Offset(0f, y - horizontal.top))
+    }
+
     fun outline(origin: Rect, card: Rect, progress: Float, density: Float): RoundRect {
         fun mix(start: Float, end: Float, amount: Float) = start + (end - start) * amount
-        val width = (progress / .3f).coerceIn(0f, 1f)
+        val width = widthProgress(progress)
         val top = mix(origin.top, card.top, progress)
         val rect = Rect(mix(origin.left, card.left, width), top,
             mix(origin.right, card.right, width), mix(origin.bottom, card.bottom, progress).coerceAtLeast(top + 1f))
@@ -168,16 +201,20 @@ internal fun <T> PlayerGlassSubmenus(pages: List<GlassMenuPage<T>>,
             val depth = visible.lastIndex - index
             val interactive = top && host?.expanded?.invoke() != false
             val unfolding = { if (top && parent != null) phase() else 1f }
+            val openerOffset = {
+                if (parent == null) Offset.Zero else Offset((parent.left - level.left).toFloat(),
+                    (parent.top - level.top).toFloat())
+            }
             val state = GlassMenuLayerState(interactive && page.key == keys.lastOrNull(), interactive,
-                unfolding, child?.trigger?.id) { if (depth == 1) GlassSubmenuMotion.handoff(phase()) else 1f }
+                unfolding, child?.trigger?.id,
+                coverOpacity = { if (depth == 1) GlassSubmenuMotion.handoff(phase()) else 1f },
+                headerOrigin = { trigger?.bounds?.translate(openerOffset() - Offset(inset.toFloat(), inset.toFloat())) })
             var size by remember { mutableStateOf(IntSize.Zero) }
             val frame: (Rect) -> RoundRect = { bounds ->
                 if (parent != null && top && host?.expanded?.invoke() != false) {
                     val source = trigger?.bounds ?: Rect(inset.toFloat(), inset.toFloat(),
                         (bounds.right - inset).coerceAtLeast(inset.toFloat()), inset + 44f * density)
-                    GlassSubmenuMotion.outline(source.translate(Offset((parent.left - level.left).toFloat(),
-                        (parent.top - level.top).toFloat())),
-                        bounds, phase(), density)
+                    GlassSubmenuMotion.outline(source.translate(openerOffset()), bounds, phase(), density)
                 } else RoundRect(bounds, CornerRadius(24f * density))
             }
             Box(Modifier.fillMaxWidth().onGloballyPositioned { level.coordinates = it }
