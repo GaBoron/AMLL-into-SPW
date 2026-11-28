@@ -149,6 +149,7 @@ internal class AmllPreferences : AutoCloseable {
         automaticKoreanRuby = c.get("automatic_korean_ruby", false),
         automaticVocalRoles = c.get("automatic_vocal_roles", false),
         rebuildPlayerPage = c.get("rebuild_player_page", false),
+        immersiveCover = c.get("immersive_cover", false),
         coloredLyrics = c.get("colored_lyrics", false),
         typography = LyricTypography.fromPreferences(c.get("font_weight", LyricFontWeight.DEFAULT.value), c.get("font_size", "auto")),
     )

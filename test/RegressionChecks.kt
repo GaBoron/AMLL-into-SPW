@@ -9,5 +9,6 @@ object RegressionChecks {
         verifyHostLyricsAvailability()
         verifyPlayerExtensions()
         verifyGlassSubmenuMotion()
+        verifyImmersiveCover()
     }
 }

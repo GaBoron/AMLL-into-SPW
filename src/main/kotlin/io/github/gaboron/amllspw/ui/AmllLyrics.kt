@@ -61,7 +61,7 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
     }
     val cache = remember(presentation.document, density, showSecondary, options.typography, options.translationLanguage) { LayoutCache() }
     val contentTransition = remember(presentation.trackKey) { LyricContentTransition(options) }
-    val lyricColor = if (options.coloredLyrics) foregroundColor ?: Color(presentation.lyricColor) else Color.White
+    val lyricColor = foregroundColor ?: if (options.coloredLyrics) Color(presentation.lyricColor) else Color.White
     val glowColor = if (options.coloredLyrics) Color(presentation.lyricGlowColor) else Color.White
     val scroll = rememberScrollableState { delta -> viewport.scroll(delta); delta }
     val hovering = pointer.position?.let { point -> viewport.hits.any { it.bounds.contains(point) } } == true
@@ -147,7 +147,7 @@ internal fun NativeLyricsSurface(presentation: LyricsPresentation, options: Rend
         if (options.background) drawFluidBackground(presentation.palette, if (options.reducedMotion) 0f else cache.backgroundTime)
         if (cache.groups.isEmpty() && !presentation.loading) {
             val empty = measurer.measure(AnnotatedString("暂无可用歌词"), options.typography.textStyle(18f))
-            drawText(empty, color = Color.White.copy(alpha = .6f), topLeft = Offset((size.width - empty.size.width) / 2, size.height * .35f))
+            drawText(empty, color = lyricColor.copy(alpha = .6f), topLeft = Offset((size.width - empty.size.width) / 2, size.height * .35f))
         }
         val hits = mutableListOf<ViewportMotion.Hit>()
         val clearBlur = manual || !options.blur || options.reducedMotion

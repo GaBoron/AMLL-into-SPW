@@ -15,6 +15,8 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.platform.LocalDensity
@@ -54,9 +56,12 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
     LaunchedEffect(presentation.trackKey) { delay(800); coverDirection = 1 }
     val lyricVisibility by animateFloatAsState(if (hiddenLyrics) 0f else 1f,
         if (options.reducedMotion) snap() else tween(560, easing = FastOutSlowInEasing))
+    val immersive = if (options.immersiveCover) rememberImmersiveArtwork(presentation) else null
+    val darkInk = (immersive?.cover?.surroundings?.count { Color(it).luminance() > .54f } ?: 0) >= 3
     val animatedColor by animateColorAsState(if (options.coloredLyrics) Color(presentation.lyricColor) else Color.White,
         tween(if (options.reducedMotion || !options.coloredLyrics) 0 else 650))
-    val color = if (options.coloredLyrics) animatedColor else Color.White
+    val normalInk = if (options.coloredLyrics) animatedColor else Color.White
+    val color = if (darkInk) lerp(Color(0xff12131a), normalInk, if (options.coloredLyrics) .24f else 0f) else normalInk
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     CompositionLocalProvider(LocalPlayerColor provides color, LocalPlayerGlassPopups provides glassPopups) {
@@ -76,23 +81,28 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
                     info / density.density to time / density.density
                 }
                 val style = preferred.copy(infoTextHeight = minimumText.first, timeTextHeight = minimumText.second)
-                PlayerBackground(presentation, options.reducedMotion)
                 val shown = style.cover(false)
                 val hidden = style.cover(true)
                 val movement = 1f - lyricVisibility
                 fun blend(a: Float, b: Float) = a + (b - a) * movement
                 val cover = Rect(blend(shown.left, hidden.left), blend(shown.top, hidden.top),
                     blend(shown.right, hidden.right), blend(shown.bottom, hidden.bottom))
+                val controlsTop = if (style.vertical) cover.bottom + style.em else style.controlsTop
+                val inkOutline = if (immersive != null) rememberPlayerInkOutline(darkInk) else null
+                if (immersive != null) ImmersivePlayerBackground(immersive, cover, options.reducedMotion)
+                else PlayerBackground(presentation, options.reducedMotion)
                 val menu: @Composable () -> Unit = {
                     if (pageMenu != null) pageMenu(style.menuSize)
                     else PlayerMediaButton("更多", "icon_more", style.menuSize, style.menuSize * .72f, onClick = onMore)
                 }
-                PlayerArtwork(presentation, Modifier.offset(cover.left.dp, cover.top.dp).size(cover.width.dp).zIndex(1f),
-                    viewportHeight = style.height, coverSize = cover.width, onPlayback = readPlayback,
-                    reducedMotion = options.reducedMotion, direction = coverDirection,
-                    toggleLabel = if (hiddenLyrics) "显示歌词" else "隐藏歌词", onToggleLyrics = { hiddenLyrics = !hiddenLyrics })
+                val coverSlot = Modifier.offset(cover.left.dp, cover.top.dp).size(cover.width.dp).zIndex(1f)
+                val toggleLabel = if (hiddenLyrics) "显示歌词" else "隐藏歌词"
+                val toggleLyrics = { hiddenLyrics = !hiddenLyrics }
+                if (immersive != null) ImmersiveCoverButton(coverSlot, toggleLabel, toggleLyrics)
+                else PlayerArtwork(presentation, coverSlot, viewportHeight = style.height, coverSize = cover.width,
+                    onPlayback = readPlayback, reducedMotion = options.reducedMotion, direction = coverDirection,
+                    toggleLabel = toggleLabel, onToggleLyrics = toggleLyrics)
                 if (!style.vertical || movement > .001f) {
-                    val controlsTop = if (style.vertical) cover.bottom + style.em else style.controlsTop
                     val controlsWidth = if (style.vertical) style.width - style.edge * 2f else style.coverSize
                     val controlsHeight = if (style.vertical) (style.height - controlsTop - 24f).coerceAtLeast(style.verticalControlsHeight)
                         else style.controlsHeight
@@ -100,7 +110,10 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
                         Modifier.offset((if (style.vertical) style.edge else cover.left).dp, controlsTop.dp)
                             .size(controlsWidth.dp, controlsHeight.dp)
                             .zIndex(1f)
-                            .graphicsLayer { alpha = if (style.vertical) movement else 1f },
+                            .graphicsLayer {
+                                alpha = if (style.vertical) movement else 1f
+                                renderEffect = inkOutline
+                            },
                         readPlayback, onSeek, { command ->
                             if (command == "previous" || command == "next") coverDirection = if (command == "previous") -1 else 1
                             transportState.request(command)
@@ -110,7 +123,10 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
                 }
                 if (style.vertical && lyricVisibility > .001f) {
                     Row(Modifier.offset(style.edge.dp, style.smallHeaderTop.dp).width((style.width - style.edge * 2).dp)
-                        .height(style.smallCover.dp).zIndex(1f).graphicsLayer { alpha = lyricVisibility }, verticalAlignment = Alignment.CenterVertically) {
+                        .height(style.smallCover.dp).zIndex(1f).graphicsLayer {
+                            alpha = lyricVisibility
+                            renderEffect = inkOutline
+                        }, verticalAlignment = Alignment.CenterVertically) {
                         Spacer(Modifier.width((style.smallCover + style.em).dp))
                         Box(Modifier.weight(1f)) { PlayerTrackInfo(presentation, style.smallInfoSize, options.reducedMotion, menu) }
                     }
@@ -128,12 +144,15 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
                                 translationX = (1f - lyricVisibility) * 40.dp.toPx()
                                 scaleX = .97f + .03f * lyricVisibility
                                 scaleY = scaleX
+                                renderEffect = inkOutline
                             }) { lyrics() }
                     }
                 }
                 if (cornerControls != null) {
                     Box(Modifier.align(Alignment.BottomEnd).padding(end = (style.em * 2).dp, bottom = 16.dp).zIndex(2f)) {
-                        cornerControls(40f)
+                        Box(if (inkOutline == null) Modifier else Modifier.graphicsLayer { renderEffect = inkOutline }) {
+                            cornerControls(40f)
+                        }
                     }
                 }
             }

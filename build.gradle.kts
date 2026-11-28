@@ -75,7 +75,11 @@ tasks.named<Zip>("plugin") {
 
 // Keep regression checks independent of a host process and a test framework.
 kotlin.sourceSets.named("test") { kotlin.setSrcDirs(listOf("test")) }
-dependencies { testImplementation(kotlin("stdlib")) }
+dependencies {
+    testImplementation(kotlin("stdlib"))
+    // Run the offscreen artwork check with native Skia without bundling it in the plugin.
+    testRuntimeOnly(compose.desktop.currentOs)
+}
 configurations.testCompileOnly { extendsFrom(configurations.compileOnly.get()) }
 val regressionTest = tasks.register<JavaExec>("regressionTest") {
     group = "verification"

@@ -9,7 +9,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 
 /** Keeps the outgoing document/poem alive while switching between the two native surfaces. */
 @Composable
@@ -29,7 +28,8 @@ internal fun LyricsScene(presentation: LyricsPresentation, options: RenderOption
         val poem = scene.poem
         if (scene.isInstrumental && poem != null) {
             val footer = remember(scene.document, scene.footer) { LyricFooterContent.from(scene.document, scene.footer) }
-            InstrumentalPoetrySurface(poem, options, foregroundColor?.toArgb() ?: scene.lyricColor,
+            val color = foregroundColor ?: if (options.coloredLyrics) Color(scene.lyricColor) else Color.White
+            InstrumentalPoetrySurface(poem, options, color,
                 Modifier.fillMaxSize(), footer, horizontalPaddingDp) { onNextPoem(scene.trackKey) }
         } else {
             lyrics(scene)

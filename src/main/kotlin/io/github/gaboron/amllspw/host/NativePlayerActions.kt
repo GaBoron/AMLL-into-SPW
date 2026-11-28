@@ -3,7 +3,7 @@ package io.github.gaboron.amllspw.host
 import com.xuncorp.spw.workshop.api.WorkshopApi
 import kotlinx.coroutines.flow.StateFlow
 
-/** Verified public host contracts; accessed lazily only while the experimental page is visible. */
+/** Verified public host contracts; accessed lazily only while the rebuilt page is visible. */
 internal class NativePlayerActions(loader: ClassLoader = WorkshopApi::class.java.classLoader) {
     private val controllerType = Class.forName("com.xuncorp.voxzen.service.PlaybackController", false, loader)
     private val configType = Class.forName("com.xuncorp.voxzen.util.AppConfig", false, loader)

@@ -34,10 +34,9 @@ import io.github.gaboron.amllspw.poetry.Poem
 /** Pure-music presentation with optional poetry; only the reading surface can change the poem. */
 @Composable
 @OptIn(ExperimentalTextApi::class)
-internal fun InstrumentalPoetrySurface(poem: Poem, options: RenderOptions, lyricColor: Int,
+internal fun InstrumentalPoetrySurface(poem: Poem, options: RenderOptions, color: Color,
     modifier: Modifier, footer: LyricFooterContent = LyricFooterContent(), horizontalPaddingDp: Float? = null, onNextPoem: () -> Unit) {
     val nextPoem by rememberUpdatedState(onNextPoem)
-    val color = if (options.coloredLyrics) Color(lyricColor) else Color.White
     val footerSections = footer.sections
     val readingFamily = remember { FontFamily("SimSun") }
     BoxWithConstraints(modifier.fillMaxSize().clipToBounds()) {
