@@ -31,10 +31,11 @@ internal fun prepareImmersiveCover(artwork: ImageBitmap, checkCancellation: () -
     val fullSource = sampleCover(artwork, fullCrop)
     val crop = trimCoverMatte(fullCrop, fullSource)
     val source = if (crop == fullCrop) fullSource else sampleCover(artwork, crop)
-    val field = CoverColorField(source)
+    val initialField = CoverColorField(source)
     val profile = coverBackdropProfile(source)
     checkCancellation()
-    val mask = coverDetailMask(source, field, profile)
+    val matte = coverEdgeMatte(source, initialField, profile)
+    val field = CoverColorField(source, matte.background)
     checkCancellation()
     val edge = COVER_PLATE_SIZE
     val colors = coverBitmap(COVER_FIELD_SIZE, COVER_FIELD_SIZE, field.pixels())
@@ -43,7 +44,7 @@ internal fun prepareImmersiveCover(artwork: ImageBitmap, checkCancellation: () -
     val opposite = edge - far
     val surroundings = listOf(field.color(far, far), field.color(opposite, far),
         field.color(far, opposite), field.color(opposite, opposite)).map(profile::blendGround)
-    return ImmersiveCover(artwork, crop, colors, coverBitmap(COVER_SAMPLE_SIZE, COVER_SAMPLE_SIZE, mask),
+    return ImmersiveCover(artwork, crop, colors, coverBitmap(COVER_SAMPLE_SIZE, COVER_SAMPLE_SIZE, matte.mask),
         material, surroundings, profile)
 }
 

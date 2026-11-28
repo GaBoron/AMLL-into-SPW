@@ -56,6 +56,7 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
     val lyricVisibility by animateFloatAsState(if (hiddenLyrics) 0f else 1f,
         if (options.reducedMotion) snap() else tween(560, easing = FastOutSlowInEasing))
     val immersive = if (options.immersiveCover) rememberImmersiveArtwork(presentation) else null
+    val immersiveLayers = if (immersive != null) rememberImmersiveArtworkLayers(immersive, options.reducedMotion) else emptyList()
     val animatedColor by animateColorAsState(if (options.coloredLyrics) Color(presentation.lyricColor) else Color.White,
         tween(if (options.reducedMotion || !options.coloredLyrics) 0 else 650))
     val color = if (options.coloredLyrics) animatedColor else Color.White
@@ -86,12 +87,11 @@ internal fun PlayerPage(presentation: LyricsPresentation, options: RenderOptions
                     blend(shown.right, hidden.right), blend(shown.bottom, hidden.bottom))
                 val controlsTop = if (style.vertical) cover.bottom + style.em else style.controlsTop
                 val lyricTop = if (style.vertical) style.lyricTop else maxOf(30f, style.coverTop - style.height * .04f)
-                val ink = if (immersive != null) {
-                    val accent = remember(immersive.cover) { presentation.lyricGlowColor }
-                    rememberImmersivePlayerInk(immersive, style, if (hiddenLyrics) hidden else shown,
-                        lyricTop, hiddenLyrics, accent, options.coloredLyrics)
+                val ink = if (immersiveLayers.isNotEmpty()) {
+                    rememberImmersivePlayerInk(immersiveLayers, style, if (hiddenLyrics) hidden else shown,
+                        lyricTop, hiddenLyrics, options.coloredLyrics)
                 } else null
-                if (immersive != null && ink != null) ImmersivePlayerBackground(immersive, cover, options.reducedMotion, ink)
+                if (ink != null) ImmersivePlayerBackground(immersiveLayers, cover)
                 else PlayerBackground(presentation, options.reducedMotion)
                 val menu: @Composable () -> Unit = {
                     if (pageMenu != null) pageMenu(style.menuSize)

@@ -9,7 +9,7 @@ private const val FIRST = COVER_SAMPLE_SIZE / CELL
 private const val LAST = FIRST * 2
 
 /** Harmonic continuation carries broad color in two dimensions beyond local contour support. */
-internal class CoverColorField(source: IntArray) {
+internal class CoverColorField(source: IntArray, edgeBackground: BooleanArray? = null) {
     private val red = FloatArray(GRID * GRID)
     private val green = FloatArray(GRID * GRID)
     private val blue = FloatArray(GRID * GRID)
@@ -18,19 +18,38 @@ internal class CoverColorField(source: IntArray) {
         val r = IntArray(CELL * CELL)
         val g = IntArray(CELL * CELL)
         val b = IntArray(CELL * CELL)
+        val backdropR = IntArray(CELL * CELL)
+        val backdropG = IntArray(CELL * CELL)
+        val backdropB = IntArray(CELL * CELL)
         for (y in FIRST until LAST) for (x in FIRST until LAST) {
             val index = y * GRID + x
+            val outerCell = minOf(x - FIRST, y - FIRST, LAST - 1 - x, LAST - 1 - y) == 0
+            var backdropCount = 0
             for (dy in 0 until CELL) for (dx in 0 until CELL) {
-                val pixel = source[((y - FIRST) * CELL + dy) * COVER_SAMPLE_SIZE + (x - FIRST) * CELL + dx]
+                val sourceIndex = ((y - FIRST) * CELL + dy) * COVER_SAMPLE_SIZE + (x - FIRST) * CELL + dx
+                val pixel = source[sourceIndex]
                 val sample = dy * CELL + dx
                 r[sample] = component(pixel, 16)
                 g[sample] = component(pixel, 8)
                 b[sample] = component(pixel, 0)
+                if (outerCell && edgeBackground?.get(sourceIndex) == true) {
+                    backdropR[backdropCount] = r[sample]
+                    backdropG[backdropCount] = g[sample]
+                    backdropB[backdropCount] = b[sample]
+                    backdropCount++
+                }
             }
-            // A trimmed mean gives letters and isolated highlights little influence on the base color.
-            red[index] = representativeColor(r)
-            green[index] = representativeColor(g)
-            blue[index] = representativeColor(b)
+            // Where a tile contains enough connected backdrop, use it to keep nearby
+            // lettering, highlights or a clipped subject from bleeding into the color field.
+            val weight = ((backdropCount - 9) / 17f).coerceIn(0f, 1f)
+            fun tone(all: IntArray, backdrop: IntArray): Float {
+                val typical = representativeColor(all, all.size)
+                if (weight <= 0f) return typical
+                return typical + (representativeColor(backdrop, backdropCount) - typical) * weight
+            }
+            red[index] = tone(r, backdropR)
+            green[index] = tone(g, backdropG)
+            blue[index] = tone(b, backdropB)
         }
         solve(red)
         solve(green)
@@ -41,12 +60,12 @@ internal class CoverColorField(source: IntArray) {
         pack(red[index].toInt(), green[index].toInt(), blue[index].toInt())
     }
 
-    private fun representativeColor(samples: IntArray): Float {
-        samples.sort()
-        val trim = samples.size / 4
+    private fun representativeColor(samples: IntArray, count: Int): Float {
+        samples.sort(0, count)
+        val trim = count / 4
         var total = 0
-        for (i in trim until samples.size - trim) total += samples[i]
-        return total.toFloat() / (samples.size - trim * 2)
+        for (i in trim until count - trim) total += samples[i]
+        return total.toFloat() / (count - trim * 2)
     }
 
     private fun solve(colors: FloatArray) {

@@ -130,11 +130,12 @@ internal class ImmersiveCoverRenderer(effect: RuntimeEffect, cover: ImmersiveCov
                 float2 cropRatio = crop.zw / max(crop.z, crop.w);
                 float2 p = (pixel - anchor.xy) / (anchor.z * cropRatio);
                 float radius = max(abs(p.x), abs(p.y));
+                float2 uv = p + 0.5;
+                half2 matte = detailMask.eval(clamp(uv, 0.0, 1.0) * ${COVER_SAMPLE_SIZE}.0).rg;
                 half weight = 0.0;
                 half3 coverColor = half3(0.0);
                 if (radius < 0.5) {
-                    float2 uv = p + 0.5;
-                    weight = detailMask.eval(uv * ${COVER_SAMPLE_SIZE}.0).r;
+                    weight = matte.r;
                     half4 cover = original.eval(crop.xy + uv * crop.zw);
                     coverColor = cover.rgb + half3(9.0 / 255.0) * (1.0 - cover.a);
                     if (weight >= 1.0) return half4(coverColor, 1.0);
@@ -142,8 +143,13 @@ internal class ImmersiveCoverRenderer(effect: RuntimeEffect, cover: ImmersiveCov
                 // Smooth scenes use only a trace. Actual grain can stay visible across the page.
                 float farTexture = mix(0.20, 0.78, smoothstep(0.42, 0.90, profile.y));
                 float textureAmount = profile.y * mix(1.0, farTexture, smoothstep(0.52, 1.30, radius));
+                float joinTexture = mix(0.22, 1.0, matte.g);
+                textureAmount *= mix(joinTexture, 1.0, smoothstep(0.50, 0.76, radius));
                 half3 background = clamp(broadColor(pixel, p) + surfaceDetail(pixel) * textureAmount, 0.0, 1.0);
-                return half4(mix(background, coverColor, weight), 1.0);
+                if (weight <= 0.0) return half4(background, 1.0);
+                // Blending in linear light avoids a dark fringe on light artwork.
+                half3 mixed = fromLinearSrgb(mix(toLinearSrgb(background), toLinearSrgb(coverColor), weight));
+                return half4(mixed, 1.0);
             }
         """.trimIndent())
     }

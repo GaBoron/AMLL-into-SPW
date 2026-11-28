@@ -6,7 +6,7 @@ import kotlin.math.roundToInt
 private const val FIRST_INSET = 2
 private const val LAST_INSET = 10
 private const val INSETS = LAST_INSET - FIRST_INSET + 1
-private const val FEATHER = 4f
+private const val FEATHER = 5f
 
 /** Finds four low-energy paths constrained to a narrow band inside the original crop. */
 internal fun coverDetailMask(source: IntArray, field: CoverColorField, profile: CoverBackdropProfile): IntArray {
